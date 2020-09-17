@@ -141,3 +141,5 @@ function example_apartment_floorplan()
     scene = resize(scene, Bounds(0.0, 1.0, 0.0, 1.0))
     return scene
 end
+
+export Point, Wall, Bounds, Scene, resize

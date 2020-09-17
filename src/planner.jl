@@ -72,9 +72,9 @@ struct SelectControlResult
     cost::Float64 # cost of this control action (e.g. distance)
 end
 
-@inline function random_config()
-    x = rand()* (scheme.scene.bounds.xmax - scheme.scene.bounds.xmin) + scheme.scene.bounds.xmin
-    y = rand() * (scheme.scene.bounds.ymax - scheme.scene.bounds.ymin) + scheme.scene.bounds.ymin
+@inline function random_config(bounds)
+    x = rand()* (bounds.xmax - bounds.xmin) + bounds.xmin
+    y = rand() * (bounds.ymax - bounds.ymin) + bounds.ymin
     return Point(x, y)
 end
 
@@ -102,11 +102,11 @@ function select_control(walls, target_conf::Point, start_conf::Point, dt::Float6
 end
 
 
-function rrt(walls::Vector, init::Point, iters::UInt, dt::Float64)
+function rrt(bounds::Bounds, walls::Vector, init::Point, iters::UInt, dt::Float64)
     tree = RRTTree(init, iters)
     local near_node::UInt
     for iter=1:iters
-        rand_conf::Point = random_config()
+        rand_conf::Point = random_config(bounds)
         near_node = nearest_neighbor(rand_conf, tree.confs, tree.num_nodes)
         result = select_control(walls, rand_conf, Point(tree.confs[1,near_node], tree.confs[2,near_node]), dt)
         if !result.failed
@@ -282,7 +282,7 @@ function plan_path(
         start::Point, goal::Point, scene::Scene,
         params::PlannerParams=PlannerParams(2000, 3.0, 10000, 1.))
 
-    tree = rrt(scene.walls, start, params.rrt_iters, params.rrt_dt)
+    tree = rrt(scene.bounds, scene.walls, start, params.rrt_iters, params.rrt_dt)
 
     # find the best path along the tree to the goal, if one exists
     best_node = 0
@@ -342,3 +342,5 @@ function plan_and_optimize_path(scene, prev_loc, loc, params)
         return points[2:end], false, tree
     end
 end
+
+export PlannerParams, plan_path, plan_and_optimize_path

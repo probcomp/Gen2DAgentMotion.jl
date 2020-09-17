@@ -268,4 +268,3 @@ function load_hmms(start::Point)
     end
     return hmms
 end
-

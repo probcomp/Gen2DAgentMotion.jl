@@ -62,7 +62,7 @@ end
 
 struct ObsModelTrace <: Trace
     gen_fn::GenerativeFunction
-    path::Path
+    path::Vector{Point}
     obs_times::Vector{Float64}
     params::ObsModelParams
     traj::Vector{Point}
@@ -125,18 +125,18 @@ end
 
 function Gen.simulate(gen_fn::ObsModel, args::Tuple)
     path, obs_times, params = args
-    trajectory = walk_path(params.nominal_speed, obs_times)
+    traj = walk_path(path, params.nominal_speed, obs_times)
     T = length(obs_times)
-    obs = sample_from_obs_model(obs_params, traj, T)
-    lml = log_marginal_likelihood(obs_params, traj, obs)
+    obs = sample_from_obs_model(params, traj, T)
+    lml = log_marginal_likelihood(params, traj, obs)
     @assert !isnan(lml)
-    return ObsModelTrace(gen_fn, path, obs_times, params, trajectory, obs, lml)
+    return ObsModelTrace(gen_fn, path, obs_times, params, traj, obs, lml)
 end
 
 function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
     path, obs_times, params = args
     T = length(obs_times)
-    trajectory = walk_path(params.nominal_speed, obs_times)
+    trajectory = walk_path(path, params.nominal_speed, obs_times)
     obs = Vector{Point}(undef, T)
     if isempty(constraints)
         trace = simulate(gen_fn, args)
@@ -145,16 +145,16 @@ function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
     for t in 1:T
         obs[t] = Point(constraints[(:x, t)], constraints[(:y, t)])
     end
-    lml = log_marginal_likelihood(obs_params, traj, obs)
+    lml = log_marginal_likelihood(params, traj, obs)
     @assert !isnan(lml)
-    return (ObsModelTrace(gen_fn, args, obs, lml), lml, nothing)
+    return (ObsModelTrace(gen_fn, path, obs_times, params, trajectory, obs, lml), lml, nothing)
 end
 
 function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints::ChoiceMap)
     old_path, old_obs_times, old_params = args
     new_path, new_obs_times, new_params = args
     old_traj = tr.traj
-    new_traj = walk_path(new_params.nomimal_speed, new_obs_times)
+    new_traj = walk_path(path, new_params.nomimal_speed, new_obs_times)
     old_T = length(old_obs_times)
     new_T = length(new_obs_times)
     if (new_T == old_T + 1) && has_value(constraints, (:x, new_T)) && has_value(constraints, (:y, new_T))
@@ -167,7 +167,7 @@ function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints
     end
     lml = log_marginal_likelihood(new_params, new_traj, obs)
     @assert !isnan(lml)
-    new_trace = ObsModelTrace(tr.gen_fn, args, obs, lml)
+    new_trace = ObsModelTrace(gen_fn, new_path, new_obs_times, new_params, new_traj, obs, lml)
     return (new_trace, lml - tr.lml, NoChange(), EmptyChoiceMap())
 end
 
@@ -283,36 +283,4 @@ function get_best_alignment(params::ObsModelParams, trajectory::Vector{Point}, o
     return alignment
 end
 
-function test_log_marginal_likelihood()
-    prob_lag = 0.1
-    prob_normal = 0.6
-    prob_skip = 0.3
-    noise = 1.0
-    obs_params = ObsModelParams(prob_lag, prob_normal, prob_skip, noise)
-    likelihood(a, b) = exp(noise_log_likelihood(obs_params, a, b))
-    A = Point(0,0)
-    B = Point(1,1)
-    C = Point(2,2)
-    obs1 = Point(0,0)
-    obs2 = Point(1,1)
-    actual = log_marginal_likelihood(obs_params, [A, B, C], [obs1, obs2])
-    first_prob_normal = obs_params.prob_lag + obs_params.prob_normal
-    first_prob_skip = obs_params.prob_skip
-    expected = 0.0
-    # 1-A, 2-A
-    expected += first_prob_normal * prob_lag * likelihood(A, obs1) * likelihood(A, obs2)
-    # 1-A, 2-B
-    expected += first_prob_normal * prob_normal * likelihood(A, obs1) * likelihood(B, obs2)
-    # 1-A, 2-C
-    expected += first_prob_normal * prob_skip * likelihood(A, obs1) * likelihood(C, obs2)
-    # 1-B, 2-B
-    expected += first_prob_skip * prob_lag * likelihood(B, obs1) * likelihood(B, obs2)
-    # 1-B, 2-C
-    expected += first_prob_skip * prob_normal * likelihood(B, obs1) * likelihood(C, obs2)
-    println(expected)
-    println(log(expected))
-    println(actual)
-    @assert isapprox(actual, log(expected))
-end
-
-test_log_marginal_likelihood()
+export ObsModelParams, path_observation_model
