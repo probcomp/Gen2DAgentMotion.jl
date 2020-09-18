@@ -3,7 +3,7 @@
 [![Build Status](https://travis-ci.com/probcomp/Gen2DAgentMotion.jl.svg?branch=master)](https://travis-ci.com/probcomp/Gen2DAgentMotion.jl)
 
 
-This Julia package contains Gen modeling components for building generative
+This Julia package contains [Gen.jl](https://www.gen.dev) modeling components for building generative
 models of the motion of agents that move approximately rationally around a 2D
 environment with obstacles.
 
