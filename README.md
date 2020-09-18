@@ -68,6 +68,11 @@ Below are images generated from the minimal example for four different observati
 
 ![Inferences from minimal example](/examples/minimal/inferences.png)
 
+You can run the example by entering the `examples/minimal` directory, and running
+```
+julia --project=. run.jl
+```
+
 ## Using in more complex models
 
 These modeling components can be used to construct more complex models of agents that are performing tasks or trying to achieve goals that involve multiple steps.
