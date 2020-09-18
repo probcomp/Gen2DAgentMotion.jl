@@ -142,4 +142,10 @@ function example_apartment_floorplan()
     return scene
 end
 
-export Point, Wall, Bounds, Scene, resize
+function draw_scene!()
+    for wall in scene.walls
+        plot!([wall.a.x, wall.b.x], [wall.a.y, wall.b.y], color="black", label=nothing, aspect_ratio=:equal)
+    end
+end
+
+export Point, Wall, Bounds, Scene, resize, draw_scene!

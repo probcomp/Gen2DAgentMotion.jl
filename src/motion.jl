@@ -136,7 +136,7 @@ end
 function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
     path, obs_times, params = args
     T = length(obs_times)
-    trajectory = walk_path(path, params.nominal_speed, obs_times)
+    traj = walk_path(path, params.nominal_speed, obs_times)
     obs = Vector{Point}(undef, T)
     if isempty(constraints)
         trace = simulate(gen_fn, args)
@@ -147,7 +147,7 @@ function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
     end
     lml = log_marginal_likelihood(params, traj, obs)
     @assert !isnan(lml)
-    return (ObsModelTrace(gen_fn, path, obs_times, params, trajectory, obs, lml), lml, nothing)
+    return (ObsModelTrace(gen_fn, path, obs_times, params, traj, obs, lml), lml, nothing)
 end
 
 function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints::ChoiceMap)
