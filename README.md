@@ -15,22 +15,32 @@ Author: [Marco Cusumano-Towner](https://www.mct.dev)
 
 The package exports some types used to define simple 2D scenes with obstacles.
 
-- `Point(x::Float64, y::Float64)`: A 2D point in the scene.
+`Point(x::Float64, y::Float64)`
 
-- `Bounds(xmin::Float64, xmax, ymin, ymax)`: A rectangular bounding box for the scene.
+A 2D point in the scene.
 
-- `Wall(a::Point, b::Point)`: A line segment representing an impassable obstacle.
+`Bounds(xmin::Float64, xmax, ymin, ymax)`
 
-- `Scene(bounds::Bounds, walls:Vector{Wall})`: Construct a scene.
+A rectangular bounding box for the scene.
+
+`Wall(a::Point, b::Point)`
+
+A line segment representing an impassable obstacle.
+
+`Scene(bounds::Bounds, walls:Vector{Wall})`
+
+Construct a scene.
 
 ## Path planner model
 
 A path planner based on [rapidly exploring random trees](http://msl.cs.illinois.edu/~lavalle/papers/Lav98c.pdf) (RRTs),
 followed by simple trajectory optimization.
 
-- `PlannerParams(rrt_iters::UInt, rrt_dt::Float64, refine_iters::UInt, refine_std::Float64)`
+`PlannerParams(rrt_iters::UInt, rrt_dt::Float64, refine_iters::UInt, refine_std::Float64)`
 
-- `(path, failed, tree) = plan_and_optimize_path(scene::Scene, a::Point, b::Point; params::PlannerParams)`: Plan a path from point `a` to point `b`, avoiding obstacles in the scene. Return a path (a `Vector{Point}`), a `Bool` indicating if a path was found or not, and the RRT that was used internally for debugging purposes. If the path planning failed, then the path is a 0-element vector.
+`(path, failed, tree) = plan_and_optimize_path(scene::Scene, a::Point, b::Point; params::PlannerParams)`
+
+Plan a path from point `a` to point `b`, avoiding obstacles in the scene. Return a path (a `Vector{Point}`), a `Bool` indicating if a path was found or not, and the RRT that was used internally for debugging purposes. If the path planning failed, then the path is a 0-element vector.
 
 ## Observation model
 
