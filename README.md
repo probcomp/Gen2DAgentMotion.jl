@@ -1,15 +1,27 @@
 # Gen2DAgentMotion.jl
-Components for building generative models of the motion of an agent moving around a 2D environment.
+
+This Julia package contains Gen modeling components for building generative
+models of the motion of agents that move approximately rationally around a 2D
+environment with obstacles.
+
+You can combine the modeling components in this package with your own Gen
+models of the agent's tasks.
+
+The repository also contains a minimal example that uses these components.
+
+Author: [Marco Cusumano-Towner](https://www.mct.dev)
 
 ## Simple 2D scenes
 
-- `Point`
+The package exports some types used to define simple 2D scenes with obstacles.
 
-- `Bounds`
+- `Point(x::Float64, y::Float64)`: A 2D point in the scene.
 
-- `Wall`
+- `Bounds(xmin::Float64, xmax, ymin, ymax)`: A rectangular bounding box for the scene.
 
-- `Scene`
+- `Wall(a::Point, b::Point)`: A line segment representing an impassable obstacle.
+
+- `Scene(bounds::Bounds, walls:Vector{Wall})`: Construct a scene.
 
 - `draw_scene!`
 
@@ -23,9 +35,11 @@ Components for building generative models of the motion of an agent moving aroun
 
 ## Observation model
 
+
+
 - `ObsModelParams`
 
-- `path_observatio_model`
+- `path_observation_model`
 
 ## Minimal example
 
