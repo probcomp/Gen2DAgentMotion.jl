@@ -12,8 +12,6 @@ models of the agent's tasks.
 
 The repository also contains a minimal example that uses these components.
 
-Author: [Marco Cusumano-Towner](https://www.mct.dev)
-
 ## Simple 2D scenes
 
 The package exports some types used to define simple 2D scenes with obstacles.
