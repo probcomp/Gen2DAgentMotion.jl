@@ -61,6 +61,13 @@ The generative function internally marginalizes over the random choices governin
 
 - `path_observation_model`: The generative function representing the observation model. Takes arguments of the form `(path::Vector{Point}, obs_times::Vector{Float64}, params::ObsModelParams)`, and samples addresses `(:x, 1)`, `(:y, 1)`, ..., `(:x, T)`, `(:y, T)` where `T = length(obs_times)`.
 
+## Installing
+
+This package is not currently available on the Julia general package registry. Instead from the Julia Pkg REPL, run:
+```
+add https://github.com/probcomp/Gen2DAgentMotion.jl
+```
+
 ## Minimal example
 
 The repository contians a minimal example that uses the components above, in `examples/minimal/run.jl`.
