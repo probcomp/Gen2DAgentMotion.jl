@@ -52,7 +52,7 @@ This processes allows the model to be robust to variability in the speed of the 
 Finally, after the paths along the path have been generated,
 the model adds independent isotropic Gaussian noise to each location to generate the observed locations.
 
-The generative function internally marginalizes over the random choices governing the agent's motion along its path using dynamic programming. (Conceptually, this is similar to [dynamic time warping](https://en.wikipedia.org/wiki/Dynamic_time_warping), but computes the sum over all possible alignments of the observed and simulated trajectories, instead of the most likely alignment).
+The generative function internally marginalizes over the random choices governing the agent's motion along its path using dynamic programming. (Conceptually, this is similar to [dynamic time warping](https://en.wikipedia.org/wiki/Dynamic_time_warping), but computes the sum over all possible alignments between the observed and simulated trajectories, instead of the most likely alignment).
 
 - `ObsModelParams(nominal_speed::Float64, walk_noise::Float64, noise::Float64)`: Parameters for the observation model. `nomimal_speed` is the nominal speed of the agent of the agent as it walks along its piecewise linear path. `walk_noise` is a number between `0.0` (exclusive) and `1.0` (exclusive) that governs how much the agent is expected to deviate from its nominal speed (a value of `0.2` is a reasonable starting point).
 
@@ -60,6 +60,34 @@ The generative function internally marginalizes over the random choices governin
 
 ## Minimal example
 
-See `examples/minimal/`
+The repository contians a minimal example that uses the components above, in `examples/minimal/run.jl`.
+The example places a uniform prior distribution on the destination of the agent within a known floorplan.
+Given a known starting location, and a set of noisy observations, the algorithm uses Gen's importance sampling
+to perform probabilistic inference over the destination of the agent.
+Below are images generated from the minimal example for four different observation sequences:
 
 ![Inferences from minimal example](/examples/minimal/inferences.png)
+
+## Using in more complex models
+
+These modeling components can be used to construct more complex models of agents that are performing tasks or trying to achieve goals that involve multiple steps.
+For example, you can specify a custom prior distribution on over a sequence of waypoints that the agent visits in pursuit of their goals, and then concatenate paths returned from `plan_and_optimize_path` for each consecutive pair of waypoints, and then model observations along the resulting path with `path_observation_model`.
+Thus, this package serves as a bridge between symbolic probabilistic models of a task domain and geometric models of motion through continuous spaces that include obstacles.
+
+Many other modeling variants are possible. For example, whereas in the minimal example the scene (the obstacles) is assumed known, the scene itself can have a prior distribution and be inferred from the observed movement data.
+Also, the parameters of the observation model can be inferred from data as well.
+
+## Citing
+
+If you use this package in your research, please cite the following paper:
+
+Cusumano-Towner, Marco F., et al. "Probabilistic programs for inferring the goals of autonomous agents." arXiv preprint arXiv:1704.04977 (2017).
+
+```
+@article{cusumano2017probabilistic,
+  title={Probabilistic programs for inferring the goals of autonomous agents},
+  author={Cusumano-Towner, Marco F and Radul, Alexey and Wingate, David and Mansinghka, Vikash K},
+  journal={arXiv preprint arXiv:1704.04977},
+  year={2017}
+}
+````

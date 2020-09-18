@@ -19,10 +19,8 @@ make_times(dt, T::Int) = collect(range(0.0, step=dt, length=T))
     append!(path, path_rest)
     obs_times = make_times(0.01, T)
     nominal_speed = 5.0
-    prob_lag = 0.1
-    prob_skip = 0.1
-    prob_normal = 1 - (prob_lag + prob_skip)
-    obs_params = ObsModelParams(nominal_speed, prob_lag, prob_normal, prob_skip, noise)
+    walk_noise = 0.2
+    obs_params = ObsModelParams(nominal_speed, walk_noise, noise)
     observations ~ path_observation_model(path, obs_times, obs_params)
     return (scene, start, path, failed) 
 end

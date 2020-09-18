@@ -54,11 +54,13 @@ end
 
 struct ObsModelParams
     nominal_speed::Float64
-    prob_lag::Float64
-    prob_normal::Float64
-    prob_skip::Float64
+    walk_noise::Float64
     noise::Float64
 end
+
+prob_lag(params::ObsModelParams) = params.walk_noise/2
+prob_skip(params::ObsModelParams) = params.walk_noise/2
+prob_normal(params::ObsModelParams) = 1-params.walk_noise
 
 struct ObsModelTrace <: Trace
     gen_fn::GenerativeFunction
@@ -100,13 +102,13 @@ function sample_from_obs_model(params::ObsModelParams, traj::Vector{Point}, T::I
     if length(traj) == 1
         z_cur = 1
     else
-        z_cur = bernoulli(params.prob_lag + params.prob_normal) ? 1 : 2
+        z_cur = bernoulli(prob_lag(params) + prob_normal(params)) ? 1 : 2
     end
     obs[1] = noise_sample(params.noise, traj[z_cur])
     for t in 2:T
-        prob_skip = (z_cur < length(traj) - 1) ? params.prob_skip : 0.0
-        prob_normal = (z_cur < length(traj)) ? params.prob_normal : 0.0
-        probs = [params.prob_lag, prob_normal, prob_skip]
+        _prob_skip = (z_cur < length(traj) - 1) ? prob_skip(params) : 0.0
+        _prob_normal = (z_cur < length(traj)) ? prob_normal(params) : 0.0
+        probs = [prob_lag(params), _prob_normal, _prob_skip]
         probs /= sum(probs)
         dowhat = categorical(probs)
         if dowhat == 1
@@ -196,16 +198,16 @@ end
         # (i) k - 2 (skip one), (ii) k - 1 (advance as usual), or (iii) k
         # (don't advance, lag)
         if k > 2
-            val1 = prev_alpha[k-2] + log(params.prob_skip)
+            val1 = prev_alpha[k-2] + log(prob_skip(params))
         else
             val1 = -Inf
         end
         if k > 1
-            val2 = prev_alpha[k-1] + log(params.prob_normal)
+            val2 = prev_alpha[k-1] + log(prob_normal(params))
         else
             val2 = -Inf
         end
-        val3 = prev_alpha[k] + log(params.prob_lag)
+        val3 = prev_alpha[k] + log(prob_lag(params))
         if val1 == -Inf && val2 == -Inf && val3 == -Inf
             new_alpha[k] = -Inf
             continue
@@ -219,14 +221,14 @@ end
 @inline function forward_transition_log_probs(next_z::Int, params::ObsModelParams, K::Int)
     log_probs = fill(-Inf, K)
     if next_z == 1
-        log_probs[1] = log(params.prob_lag)
+        log_probs[1] = log(prob_lag(params))
     elseif next_z == 2
-        log_probs[1] = log(params.prob_normal)
-        log_probs[2] = log(params.prob_lag)
+        log_probs[1] = log(prob_normal(params))
+        log_probs[2] = log(prob_lag(params))
     else
-        log_probs[next_z] = log(params.prob_lag)
-        log_probs[next_z-1] = log(params.prob_normal)
-        log_probs[next_z-2] = log(params.prob_skip)
+        log_probs[next_z] = log(prob_lag(params))
+        log_probs[next_z-1] = log(prob_normal(params))
+        log_probs[next_z-2] = log(prob_skip(params))
     end
     return log_probs
 end
@@ -237,8 +239,8 @@ end
         return
     end
     fill!(alpha, -Inf)
-    first_prob_normal = params.prob_lag + params.prob_normal
-    first_prob_skip = params.prob_skip
+    first_prob_normal = prob_lag(params) + prob_normal(params)
+    first_prob_skip = prob_skip(params)
     alpha[1] = log(first_prob_normal) + noise_log_likelihood(params, trajectory[1], obs1) # p(z1) is deterministic at start of traj
     alpha[2] = log(first_prob_skip) + noise_log_likelihood(params, trajectory[2], obs1) # p(z1) is deterministic at start of traj
     return nothing
