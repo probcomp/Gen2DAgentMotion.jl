@@ -72,7 +72,8 @@ The repository contians a minimal example that uses the components above, in `ex
 The example places a uniform prior distribution on the destination of the agent within a known floorplan.
 Given a known starting location, and a set of noisy observations, the algorithm uses Gen's importance sampling
 to perform probabilistic inference over the destination of the agent.
-Below are images generated from the minimal example for four different observation sequences:
+Below are images generated from the minimal example for four different observation sequences.
+Observed locations are shown in black and conditional posterior samples of the destination are shown in red:
 
 ![Inferences from minimal example](/examples/minimal/inferences.png)
 
