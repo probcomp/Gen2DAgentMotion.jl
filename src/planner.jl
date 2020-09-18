@@ -343,4 +343,4 @@ function plan_and_optimize_path(scene, prev_loc, loc, params)
     end
 end
 
-export PlannerParams, plan_path, plan_and_optimize_path
+export PlannerParams, plan_and_optimize_path

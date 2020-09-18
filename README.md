@@ -23,15 +23,14 @@ The package exports some types used to define simple 2D scenes with obstacles.
 
 - `Scene(bounds::Bounds, walls:Vector{Wall})`: Construct a scene.
 
-- `draw_scene!`
-
 ## Path planner model
 
-- `PlannerParams`
+A path planner based on [rapidly exploring random trees](http://msl.cs.illinois.edu/~lavalle/papers/Lav98c.pdf) (RRTs),
+followed by simple trajectory optimization.
 
-- `plan_path`
+- `PlannerParams(rrt_iters::UInt, rrt_dt::Float64, refine_iters::UInt, refine_std::Float64)`
 
-- `plan_and_optimize_path`
+- `(path, failed, tree) = plan_and_optimize_path(scene::Scene, a::Point, b::Point; params::PlannerParams)`: Plan a path from point `a` to point `b`, avoiding obstacles in the scene. Return a path (a `Vector{Point}`), a `Bool` indicating if a path was found or not, and the RRT that was used internally for debugging purposes. If the path planning failed, then the path is a 0-element vector.
 
 ## Observation model
 
