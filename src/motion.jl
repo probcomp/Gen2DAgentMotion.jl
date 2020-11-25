@@ -153,10 +153,10 @@ function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
 end
 
 function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints::ChoiceMap)
-    old_path, old_obs_times, old_params = args
+    old_path, old_obs_times, old_params = get_args(tr)
     new_path, new_obs_times, new_params = args
     old_traj = tr.traj
-    new_traj = walk_path(path, new_params.nomimal_speed, new_obs_times)
+    new_traj = walk_path(new_path, new_params.nominal_speed, new_obs_times)
     old_T = length(old_obs_times)
     new_T = length(new_obs_times)
     if (new_T == old_T + 1) && has_value(constraints, (:x, new_T)) && has_value(constraints, (:y, new_T))
@@ -169,8 +169,8 @@ function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints
     end
     lml = log_marginal_likelihood(new_params, new_traj, obs)
     @assert !isnan(lml)
-    new_trace = ObsModelTrace(gen_fn, new_path, new_obs_times, new_params, new_traj, obs, lml)
-    return (new_trace, lml - tr.lml, NoChange(), EmptyChoiceMap())
+    new_trace = ObsModelTrace(get_gen_fn(tr), new_path, new_obs_times, new_params, new_traj, obs, lml)
+    return (new_trace, lml - tr.lml, UnknownChange(), EmptyChoiceMap())
 end
 
 function Gen.regenerate(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, selection::Selection)

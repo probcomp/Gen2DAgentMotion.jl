@@ -14,7 +14,8 @@ mutable struct RRTTree
     max_num_nodes::UInt
 end
 
-function RRTTree(root_conf::Point, max_num_nodes::UInt)
+function RRTTree(root_conf::Point, iters::UInt)
+    max_num_nodes = iters + 2
 
     # pre-allocate
     confs = Matrix{Float64}(undef, 2, max_num_nodes)
@@ -45,6 +46,8 @@ end
     tree.num_nodes = node
     return node
 end
+
+# TODO modify this so it stochastically sometimes does not pick the nearest neighbor?
 
 function nearest_neighbor(conf::Point, confs::Matrix{Float64}, num_nodes::UInt)
     nearest::UInt = 1
@@ -265,8 +268,12 @@ end
 function optimize_path(
         scene::Scene, original::Path,
         refine_iters::UInt, refine_std::Float64, spacing::Float64,
-        dist_weight, num_samples, perturb_width)
-    simplified = simplify_path(scene, original; spacing=spacing)
+        dist_weight, num_samples, perturb_width, unpredictable::Bool)
+    if unpredictable
+        simplified = original
+    else
+        simplified = simplify_path(scene, original; spacing=spacing)
+    end
     refined = refine_path(scene, simplified, refine_iters, refine_std, dist_weight, num_samples, perturb_width)
     return refined 
 end
@@ -280,33 +287,68 @@ Plan path from start to goal that avoids obstacles in the scene.
 """
 function plan_path(
         start::Point, goal::Point, scene::Scene,
-        params::PlannerParams=PlannerParams(2000, 3.0, 10000, 1.))
+        params::PlannerParams=PlannerParams(2000, 3.0, 10000, 1.),
+        unpredictable::Bool=false)
 
     tree = rrt(scene.bounds, scene.walls, start, params.rrt_iters, params.rrt_dt)
 
-    # find the best path along the tree to the goal, if one exists
-    best_node = 0
-    min_cost = Inf
-    path_found = false
-    best_conf = Point(NaN,NaN)
-    for node in 1:tree.num_nodes
-        # check for line-of-site to the goal
-        conf = get_conf_point(tree, node)
-        clear_path = line_of_site(scene, conf, goal)
-        cost = tree.costs_from_start[node] + (clear_path ? dist(conf, goal) : Inf)
-        if cost < min_cost
-            path_found = true
-            best_node = node
-            min_cost = cost
-            best_conf = conf
+    if unpredictable
+
+        # find connect the goal point to the closest point on the tree in
+        # absolute, not total, distance this will give us circuitous routes
+        # that we then optimize with trajectory optimization
+        best_node = 0
+        min_cost = Inf
+        path_found = false
+        best_conf = Point(NaN,NaN)
+        for node in 1:tree.num_nodes
+            # check for line-of-site to the goal
+            conf = get_conf_point(tree, node)
+            clear_path = line_of_site(scene, conf, goal)
+            cost = (clear_path ? dist(conf, goal) : Inf)
+            if cost < min_cost
+                path_found = true
+                best_node = node
+                min_cost = cost
+                best_conf = conf
+            end
+        end
+
+    else
+
+        # find the best path along the tree to the goal, if one exists
+        best_node = 0
+        min_cost = Inf
+        path_found = false
+        best_conf = Point(NaN,NaN)
+        all_valid_nodes = UInt[]
+        for node in 1:tree.num_nodes
+            # check for line-of-site to the goal
+            conf = get_conf_point(tree, node)
+            clear_path = line_of_site(scene, conf, goal)
+            cost = tree.costs_from_start[node] + (clear_path ? dist(conf, goal) : Inf)
+            if clear_path
+                push!(all_valid_nodes, node)
+            end
+            if cost < min_cost
+                path_found = true
+                best_node = node
+                min_cost = cost
+                best_conf = conf
+            end
+        end
+        if path_found
+            best_node = rand(all_valid_nodes)
+            best_conf = get_conf_point(tree, best_node)
         end
     end
+
 
     local path::Union{Nothing,Path}
     if path_found
         # extend the tree to the goal configuration
         control = Point(goal.x - best_conf.x, goal.y - best_conf.y) 
-        goal_node = add_node!(tree, best_node, goal, control, min_cost)
+        goal_node = add_node!(tree, best_node, goal, control, NaN)
         points = Array{Point,1}()
         node = goal_node
         push!(points, get_conf_point(tree, goal_node))
@@ -325,8 +367,8 @@ function plan_path(
     return path, tree
 end
 
-function plan_and_optimize_path(scene, prev_loc, loc, params)
-    (path, tree) = plan_path(prev_loc, loc, scene, params)
+function plan_and_optimize_path(scene, prev_loc, loc, params; unpredictable=false)#, random_route::Bool)
+    (path, tree) = plan_path(prev_loc, loc, scene, params, unpredictable)
     if isnothing(path)
         return Point[], true, tree
     else
@@ -335,7 +377,7 @@ function plan_and_optimize_path(scene, prev_loc, loc, params)
         num_samples = 5
         perturb_width = 0.05
         path = optimize_path(scene, path, params.refine_iters, params.refine_std, spacing,
-            dist_weight, num_samples, perturb_width)
+            dist_weight, num_samples, perturb_width, unpredictable)
         points = path.points
         @assert points[1] == prev_loc
         @assert points[end] == loc
