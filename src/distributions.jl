@@ -93,10 +93,13 @@ end
 function Gen.logpdf(::UniformCoordRect, pt::Vector{Float64}, xmin, xmax, ymin, ymax)
     @assert length(pt) == 2
     if (xmin <= pt[1] <= xmax) && (ymin <= pt[2] <= ymax)
-        return 0.0
+        return -log(xmax - xmin) - log(ymax - ymin)
     else
         return -Inf
     end
 end
+
+Gen.has_argument_grads(::UniformCoordRect) = (false, false, false, false)
+Gen.has_output_grad(::UniformCoordRect) = false
 
 export mixture_of_gaussians, uniform_coord, uniform_coord_rect
