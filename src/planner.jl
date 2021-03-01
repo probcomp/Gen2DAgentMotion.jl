@@ -127,8 +127,10 @@ end
 struct PlannerParams
     rrt_iters::UInt
     rrt_dt::Float64 # the maximum proposal distance
+    refine_spacing::Float64
     refine_iters::UInt
     refine_std::Float64
+    refine_gap::Float64
 end
 
 struct Path
@@ -186,7 +188,9 @@ function simplify_path(scene::Scene, original::Path; spacing=0.05)
     @assert line_of_site(scene, new_points[end], original.goal)
     add_intermediate_points!(new_points, original.goal, spacing)
     push!(new_points, original.goal)
-    return Path(original.start, original.goal, new_points)
+    path = Path(original.start, original.goal, new_points)
+    #@assert check_path_clear(path, scene)
+    return path
 end
 
 function local_score(scene, a, b, num_tests, perturb_width)
@@ -203,7 +207,7 @@ end
 Optimize the path to minimize its length while avoiding obstacles in the scene.
 """
 function refine_path(
-        scene::Scene, original::Path, iters::UInt, std::Float64, dist_weight, num_samples, perturb_width)
+        scene::Scene, original::Path, iters::UInt, std::Float64, gap::Float64) # 0.02
 
     # do stochastic optimization
     new_points = deepcopy(original.points)
@@ -211,7 +215,6 @@ function refine_path(
     if num_interior_points == 0
         return original
     end
-    gap = 0.05 # TODO
     for i=1:iters
         point_idx = 2 + (i % num_interior_points)
         @assert point_idx > 1 # not start
@@ -246,6 +249,10 @@ function refine_path(
                 intersects(wall, cur_3, next_point) +
                 intersects(wall, prev_point, cur_4) +
                 intersects(wall, cur_4, next_point))
+                #Inf * (
+                    #intersects(wall, prev_point, point) +
+                    #intersects(wall, point, next_point)
+                #))
 
             adjusted_cost += (
                 intersects(wall, prev_point, adjusted_1) +
@@ -256,6 +263,10 @@ function refine_path(
                 intersects(wall, adjusted_3, next_point) +
                 intersects(wall, prev_point, adjusted_4) +
                 intersects(wall, adjusted_4, next_point))
+                #Inf * (
+                    #intersects(wall, prev_point, adjusted) +
+                    #intersects(wall, adjusted, next_point)
+                #))
         end
         if adjusted_cost < cur_cost
             # buffer scores between 0 and 4
@@ -267,14 +278,11 @@ end
 
 function optimize_path(
         scene::Scene, original::Path,
-        refine_iters::UInt, refine_std::Float64, spacing::Float64,
-        dist_weight, num_samples, perturb_width, unpredictable::Bool)
-    if unpredictable
-        simplified = original
-    else
-        simplified = simplify_path(scene, original; spacing=spacing)
-    end
-    refined = refine_path(scene, simplified, refine_iters, refine_std, dist_weight, num_samples, perturb_width)
+        refine_iters::UInt, refine_std::Float64, spacing::Float64, refine_gap::Float64)
+    simplified = simplify_path(scene, original; spacing=spacing)
+    #@assert check_path_clear(simplified, scene)
+    refined = refine_path(scene, simplified, refine_iters, refine_std, refine_gap)
+    #@assert check_path_clear(refined, scene)
     return refined 
 end
 
@@ -282,67 +290,54 @@ end
     return Point(tree.confs[1,node], tree.confs[2,node])
 end
 
+function check_path_clear(path::Path, scene::Scene)
+    prev = path.start
+    @assert path.points[1] == path.start
+    @assert path.points[end] == path.goal
+    for i in 2:length(path.points)
+        next = path.points[i]
+        if !line_of_site(scene, prev, next)
+            return false
+        end
+        prev = next
+    end
+    return true
+end
+
 """
 Plan path from start to goal that avoids obstacles in the scene.
 """
 function plan_path(
         start::Point, goal::Point, scene::Scene,
-        params::PlannerParams=PlannerParams(2000, 3.0, 10000, 1.),
-        unpredictable::Bool=false)
+        params::PlannerParams=PlannerParams(2000, 3.0, 0.05, 10000, 1.0, 0.02))
 
     tree = rrt(scene.bounds, scene.walls, start, params.rrt_iters, params.rrt_dt)
 
-    if unpredictable
-
-        # find connect the goal point to the closest point on the tree in
-        # absolute, not total, distance this will give us circuitous routes
-        # that we then optimize with trajectory optimization
-        best_node = 0
-        min_cost = Inf
-        path_found = false
-        best_conf = Point(NaN,NaN)
-        for node in 1:tree.num_nodes
-            # check for line-of-site to the goal
-            conf = get_conf_point(tree, node)
-            clear_path = line_of_site(scene, conf, goal)
-            cost = (clear_path ? dist(conf, goal) : Inf)
-            if cost < min_cost
-                path_found = true
-                best_node = node
-                min_cost = cost
-                best_conf = conf
-            end
+    # find the best path along the tree to the goal, if one exists
+    best_node = 0
+    min_cost = Inf
+    path_found = false
+    best_conf = Point(NaN,NaN)
+    all_valid_nodes = UInt[]
+    for node in 1:tree.num_nodes
+        # check for line-of-site to the goal
+        conf = get_conf_point(tree, node)
+        clear_path = line_of_site(scene, conf, goal)
+        cost = tree.costs_from_start[node] + (clear_path ? dist(conf, goal) : Inf)
+        if clear_path
+            push!(all_valid_nodes, node)
         end
-
-    else
-
-        # find the best path along the tree to the goal, if one exists
-        best_node = 0
-        min_cost = Inf
-        path_found = false
-        best_conf = Point(NaN,NaN)
-        all_valid_nodes = UInt[]
-        for node in 1:tree.num_nodes
-            # check for line-of-site to the goal
-            conf = get_conf_point(tree, node)
-            clear_path = line_of_site(scene, conf, goal)
-            cost = tree.costs_from_start[node] + (clear_path ? dist(conf, goal) : Inf)
-            if clear_path
-                push!(all_valid_nodes, node)
-            end
-            if cost < min_cost
-                path_found = true
-                best_node = node
-                min_cost = cost
-                best_conf = conf
-            end
-        end
-        if path_found
-            best_node = rand(all_valid_nodes)
-            best_conf = get_conf_point(tree, best_node)
+        if cost < min_cost
+            path_found = true
+            best_node = node
+            min_cost = cost
+            best_conf = conf
         end
     end
-
+    if path_found
+        best_node = rand(all_valid_nodes)
+        best_conf = get_conf_point(tree, best_node)
+    end
 
     local path::Union{Nothing,Path}
     if path_found
@@ -360,6 +355,7 @@ function plan_path(
         @assert points[end] == start # the start point
         @assert points[1] == goal
         path = Path(start, goal, reverse(points))
+        #@assert check_path_clear(path, scene)
     else
         path = nothing
     end
@@ -367,17 +363,13 @@ function plan_path(
     return path, tree
 end
 
-function plan_and_optimize_path(scene, prev_loc, loc, params; unpredictable=false)#, random_route::Bool)
-    (path, tree) = plan_path(prev_loc, loc, scene, params, unpredictable)
+function plan_and_optimize_path(scene, prev_loc, loc, params)
+    (path, tree) = plan_path(prev_loc, loc, scene, params)
     if isnothing(path)
         return Point[], true, tree
     else
-        spacing = 0.2
-        dist_weight = 5.0
-        num_samples = 5
-        perturb_width = 0.05
-        path = optimize_path(scene, path, params.refine_iters, params.refine_std, spacing,
-            dist_weight, num_samples, perturb_width, unpredictable)
+        path = optimize_path(scene, path, params.refine_iters, params.refine_std, params.refine_spacing, params.refine_gap)
+        #@assert check_path_clear(path, scene)
         points = path.points
         @assert points[1] == prev_loc
         @assert points[end] == loc
