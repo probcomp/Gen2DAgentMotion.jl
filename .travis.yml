@@ -11,4 +11,4 @@ jobs:
       script:
         - julia -e 'using Pkg; Pkg.build(); Pkg.test()'
     - stage: runexample
-      script: "JULIA_PROJECT=examples/minimal julia examples/minimal/run.jl"
+      script: JULIA_PROJECT=examples/minimal julia -e 'using Pkg; Pkg.instantiate(); include("examples/minimal/run.jl")'
