@@ -10,7 +10,7 @@ const couch = Point(0.15, 0.85)
 make_times(dt, T::Int) = collect(range(0.0, step=dt, length=T))
 
 @gen function model(T::Int)
-    planner_params = PlannerParams(400, 3.0, 200, 0.02)
+    planner_params = PlannerParams(1000, 1.0, 0.05, 1000, 0.01, 0.02)#PlannerParams(400, 3.0, 200, 0.02)
     noise = 0.02
     destination ~ uniform_coord()
     start = couch
@@ -21,12 +21,16 @@ make_times(dt, T::Int) = collect(range(0.0, step=dt, length=T))
     nominal_speed = 5.0
     walk_noise = 0.2
     obs_params = ObsModelParams(nominal_speed, walk_noise, noise)
-    observations ~ path_observation_model(path, obs_times, obs_params)
-    return (scene, start, path, failed) 
+    points_along_path_and_alignment = ({:observations} ~ path_observation_model(path, obs_times, obs_params))
+    points_along_path = points_along_path_and_alignment[1]
+    alignment = points_along_path_and_alignment[2]
+    return (scene, start, path, failed, points_along_path, alignment)
 end
 
 get_path(trace) = get_retval(trace)[3]
 get_T(trace) = get_args(trace)[1]
+get_points_along_path(trace) = get_retval(trace)[5]
+get_alignment(trace) = get_retval(trace)[6]
 
 function generate_synthetic_data()
     T = 10

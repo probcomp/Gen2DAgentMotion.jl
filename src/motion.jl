@@ -62,138 +62,16 @@ prob_lag(params::ObsModelParams) = params.walk_noise/2
 prob_skip(params::ObsModelParams) = params.walk_noise/2
 prob_normal(params::ObsModelParams) = 1-params.walk_noise
 
-struct ObsModelTrace <: Trace
-    gen_fn::GenerativeFunction
-    path::Vector{Point}
-    obs_times::Vector{Float64}
-    params::ObsModelParams
-    traj::Vector{Point}
-    obs::Vector{Point}
-    lml::Float64
-end
-
-Gen.get_gen_fn(tr::ObsModelTrace) = tr.gen_fn
-Gen.get_retval(::ObsModelTrace) = nothing
-Gen.get_args(tr::ObsModelTrace) = (tr.path, tr.obs_times, tr.params)
-Gen.get_score(tr::ObsModelTrace) = tr.lml
-Gen.project(tr::ObsModelTrace, ::EmptySelection) = 0.0
-
-function Gen.get_choices(tr::ObsModelTrace)
-    cm = choicemap()
-    for (i, pt) in enumerate(tr.obs)
-        cm[(:x, i)] = pt.x
-        cm[(:y, i)] = pt.y
-    end
-    return cm
-end
-
-struct ObsModel <: GenerativeFunction{Nothing,ObsModelTrace} end
-
-const path_observation_model = ObsModel()
-
-function noise_sample(noise, pt::Point)
-    x = normal(pt.x, noise)
-    y = normal(pt.y, noise)
-    return Point(x, y)
-end
-
-function sample_from_obs_model(params::ObsModelParams, traj::Vector{Point}, T::Int)
-    obs = Vector{Point}(undef, T)
-    if length(traj) == 1
-        z_cur = 1
-    else
-        z_cur = bernoulli(prob_lag(params) + prob_normal(params)) ? 1 : 2
-    end
-    obs[1] = noise_sample(params.noise, traj[z_cur])
-    for t in 2:T
-        _prob_skip = (z_cur < length(traj) - 1) ? prob_skip(params) : 0.0
-        _prob_normal = (z_cur < length(traj)) ? prob_normal(params) : 0.0
-        probs = [prob_lag(params), _prob_normal, _prob_skip]
-        probs /= sum(probs)
-        dowhat = categorical(probs)
-        if dowhat == 1
-            # lag
-        elseif dowhat == 2
-            # normal
-            z_cur += 1
-        else
-            # skip
-            z_cur += 2
-        end
-        obs[t] = noise_sample(params.noise, traj[z_cur])
-    end
-    return obs
-end
-
-function Gen.simulate(gen_fn::ObsModel, args::Tuple)
-    path, obs_times, params = args
-    traj = walk_path(path, params.nominal_speed, obs_times)
-    T = length(obs_times)
-    obs = sample_from_obs_model(params, traj, T)
-    lml = log_marginal_likelihood(params, traj, obs)
-    @assert !isnan(lml)
-    return ObsModelTrace(gen_fn, path, obs_times, params, traj, obs, lml)
-end
-
-function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
-    path, obs_times, params = args
-    T = length(obs_times)
-    traj = walk_path(path, params.nominal_speed, obs_times)
-    obs = Vector{Point}(undef, T)
-    if isempty(constraints)
-        trace = simulate(gen_fn, args)
-        return (trace, 0.0, nothing)
-    end
-    for t in 1:T
-        obs[t] = Point(constraints[(:x, t)], constraints[(:y, t)])
-    end
-    lml = log_marginal_likelihood(params, traj, obs)
-    @assert !isnan(lml)
-    return (ObsModelTrace(gen_fn, path, obs_times, params, traj, obs, lml), lml, nothing)
-end
-
-function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints::ChoiceMap)
-    old_path, old_obs_times, old_params = get_args(tr)
-    new_path, new_obs_times, new_params = args
-    old_traj = tr.traj
-    new_traj = walk_path(new_path, new_params.nominal_speed, new_obs_times)
-    old_T = length(old_obs_times)
-    new_T = length(new_obs_times)
-    if (new_T == old_T + 1) && has_value(constraints, (:x, new_T)) && has_value(constraints, (:y, new_T))
-        obs = copy(tr.obs)
-        push!(obs, Point(constraints[(:x, new_T)], constraints[(:y, new_T)]))
-    elseif new_T == old_T && isempty(constraints)
-        obs = tr.obs
-    else
-        error("not implemented")
-    end
-    lml = log_marginal_likelihood(new_params, new_traj, obs)
-    @assert !isnan(lml)
-    new_trace = ObsModelTrace(get_gen_fn(tr), new_path, new_obs_times, new_params, new_traj, obs, lml)
-    return (new_trace, lml - tr.lml, UnknownChange(), EmptyChoiceMap())
-end
-
-function Gen.regenerate(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, selection::Selection)
-    if !isempty(selection)
-        error("not implemented")
-    end
-    (new_trace, weight, retdiff, _) = update(tr, args, argdiffs, EmptyChoiceMap())
-    return (new_trace, weight, retdiff)
-end
-
-
-
-
-@inline function noise_log_likelihood(params::ObsModelParams, traj_pt::Point, obs_pt::Point)
-    ll = logpdf(normal, obs_pt.x, traj_pt.x, params.noise)
-    ll += logpdf(normal, obs_pt.y, traj_pt.y, params.noise)
+@inline function noise_log_likelihood(params::ObsModelParams, points_along_path_pt::Point, obs_pt::Point)
+    ll = logpdf(normal, obs_pt.x, points_along_path_pt.x, params.noise)
+    ll += logpdf(normal, obs_pt.y, points_along_path_pt.y, params.noise)
     return ll
 end
 
-@inline function populate_new_alpha!(new_alpha, prev_alpha, traj::Vector{Point}, obs_t::Point, params::ObsModelParams)
-    for k in 1:length(traj)
-        # observation model: obs[t] corresponds with traj[k]
-        noise_ll = noise_log_likelihood(params, traj[k], obs_t)
+@inline function populate_new_alpha!(new_alpha, prev_alpha, points_along_path::Vector{Point}, obs_t::Point, params::ObsModelParams)
+    for k in 1:length(points_along_path)
+        # observation model: obs[t] corresponds with points_along_path[k]
+        noise_ll = noise_log_likelihood(params, points_along_path[k], obs_t)
         # dynamics model: given that we are k, the previous could have been
         # (i) k - 2 (skip one), (ii) k - 1 (advance as usual), or (iii) k
         # (don't advance, lag)
@@ -233,47 +111,35 @@ end
     return log_probs
 end
 
-@inline function populate_initial_alpha!(alpha, params::ObsModelParams, trajectory::Vector{Point}, obs1::Point)
+@inline function populate_initial_alpha!(alpha, params::ObsModelParams, points_along_path::Vector{Point}, obs1::Point)
     if length(alpha) == 1
-        alpha[1] = noise_log_likelihood(params, trajectory[1], obs1)
+        alpha[1] = noise_log_likelihood(params, points_along_path[1], obs1)
         return
     end
     fill!(alpha, -Inf)
     first_prob_normal = prob_lag(params) + prob_normal(params)
     first_prob_skip = prob_skip(params)
-    alpha[1] = log(first_prob_normal) + noise_log_likelihood(params, trajectory[1], obs1) # p(z1) is deterministic at start of traj
-    alpha[2] = log(first_prob_skip) + noise_log_likelihood(params, trajectory[2], obs1) # p(z1) is deterministic at start of traj
+    alpha[1] = log(first_prob_normal) + noise_log_likelihood(params, points_along_path[1], obs1) # p(z1) is deterministic at start of points_along_path
+    alpha[2] = log(first_prob_skip) + noise_log_likelihood(params, points_along_path[2], obs1) # p(z1) is deterministic at start of points_along_path
     return nothing
 end
 
-function log_marginal_likelihood(params::ObsModelParams, trajectory::Vector{Point}, obs::Vector{Point})
-    K = length(trajectory)
-    T = length(obs)
-    alpha = Vector{Float64}(undef, K)
-    new_alpha = Vector{Float64}(undef, K)
-    populate_initial_alpha!(alpha, params, trajectory, obs[1])
-    for t in 2:T
-        populate_new_alpha!(new_alpha, alpha, trajectory, obs[t], params)
-        tmp = alpha; alpha = new_alpha; new_alpha = tmp
-    end
-    return logsumexp(alpha)
-end
-
-function get_best_alignment(params::ObsModelParams, trajectory::Vector{Point}, obs::Vector{Point})
-    K = length(trajectory)
+function run_forward_backward(params::ObsModelParams, points_along_path::Vector{Point}, obs::Vector{Point})
+    K = length(points_along_path)
     T = length(obs)
 
     # run forward filtering backward sampling
 
     # forward filtering
     alphas = Matrix{Float64}(undef, T, K) # optimize memory access?
-    populate_initial_alpha!(view(alphas, 1, :), params, trajectory, obs[1])
+    populate_initial_alpha!(view(alphas, 1, :), params, points_along_path, obs[1])
     for t in 2:T
-        populate_new_alpha!(view(alphas, t, :), view(alphas, t-1, :), trajectory, obs[t], params)
+        populate_new_alpha!(view(alphas, t, :), view(alphas, t-1, :), points_along_path, obs[t], params)
     end
+    log_marginal_likelihood = logsumexp(alphas[end,:])
 
     # backward sampling
-    alignment = Vector{Int}(undef, length(trajectory))
+    alignment = Vector{Int}(undef, length(points_along_path))
     ldist = alphas[T,:]
     dist = exp.(ldist .- logsumexp(ldist))
     alignment[T] = categorical(dist)
@@ -282,7 +148,149 @@ function get_best_alignment(params::ObsModelParams, trajectory::Vector{Point}, o
         dist = exp.(ldist .- logsumexp(ldist))
         alignment[t] = categorical(dist)
     end
-    return alignment
+    return (log_marginal_likelihood, alignment)
 end
+
+#function log_marginal_likelihood(params::ObsModelParams, points_along_path::Vector{Point}, obs::Vector{Point})
+    #K = length(points_along_path)
+    #T = length(obs)
+    #alpha = Vector{Float64}(undef, K)
+    #new_alpha = Vector{Float64}(undef, K)
+    #populate_initial_alpha!(alpha, params, points_along_path, obs[1])
+    #for t in 2:T
+        #populate_new_alpha!(new_alpha, alpha, points_along_path, obs[t], params)
+        #tmp = alpha; alpha = new_alpha; new_alpha = tmp
+    #end
+    #return logsumexp(alpha)
+#end
+
+#######################
+# generative function #
+#######################
+
+struct ObsModelTrace <: Trace
+    gen_fn::GenerativeFunction
+    path::Vector{Point}
+    obs_times::Vector{Float64}
+    params::ObsModelParams
+    points_along_path::Vector{Point}
+    obs::Vector{Point}
+    lml::Float64
+    alignment::Vector{Int}
+end
+
+Gen.get_gen_fn(tr::ObsModelTrace) = tr.gen_fn
+Gen.get_retval(trace::ObsModelTrace) = (trace.points_along_path, trace.alignment)
+Gen.get_args(tr::ObsModelTrace) = (tr.path, tr.obs_times, tr.params)
+Gen.get_score(tr::ObsModelTrace) = tr.lml
+Gen.project(tr::ObsModelTrace, ::EmptySelection) = 0.0
+
+function Gen.get_choices(tr::ObsModelTrace)
+    cm = choicemap()
+    for (i, pt) in enumerate(tr.obs)
+        cm[(:x, i)] = pt.x
+        cm[(:y, i)] = pt.y
+    end
+    return cm
+end
+
+struct ObsModel <: GenerativeFunction{Tuple{Vector{Point},Vector{Int}},ObsModelTrace} end
+
+const path_observation_model = ObsModel()
+
+function noise_sample(noise, pt::Point)
+    x = normal(pt.x, noise)
+    y = normal(pt.y, noise)
+    return Point(x, y)
+end
+
+function sample_from_obs_model(params::ObsModelParams, points_along_path::Vector{Point}, T::Int)
+    obs = Vector{Point}(undef, T)
+    if length(points_along_path) == 1
+        z_cur = 1
+    else
+        z_cur = bernoulli(prob_lag(params) + prob_normal(params)) ? 1 : 2
+    end
+    obs[1] = noise_sample(params.noise, points_along_path[z_cur])
+    for t in 2:T
+        _prob_skip = (z_cur < length(points_along_path) - 1) ? prob_skip(params) : 0.0
+        _prob_normal = (z_cur < length(points_along_path)) ? prob_normal(params) : 0.0
+        probs = [prob_lag(params), _prob_normal, _prob_skip]
+        probs /= sum(probs)
+        dowhat = categorical(probs)
+        if dowhat == 1
+            # lag
+        elseif dowhat == 2
+            # normal
+            z_cur += 1
+        else
+            # skip
+            z_cur += 2
+        end
+        obs[t] = noise_sample(params.noise, points_along_path[z_cur])
+    end
+    return obs
+end
+
+function Gen.simulate(gen_fn::ObsModel, args::Tuple)
+    path, obs_times, params = args
+    points_along_path = walk_path(path, params.nominal_speed, obs_times)
+    T = length(obs_times)
+    obs = sample_from_obs_model(params, points_along_path, T)
+    (lml, alignment) = run_forward_backward(params, points_along_path, obs)
+    @assert !isnan(lml)
+    return ObsModelTrace(gen_fn, path, obs_times, params, points_along_path, obs, lml, alignment)
+end
+
+function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
+    path, obs_times, params = args
+    T = length(obs_times)
+    points_along_path = walk_path(path, params.nominal_speed, obs_times)
+    obs = Vector{Point}(undef, T)
+    if isempty(constraints)
+        trace = simulate(gen_fn, args)
+        return (trace, 0.0, nothing)
+    end
+    for t in 1:T
+        obs[t] = Point(constraints[(:x, t)], constraints[(:y, t)])
+    end
+    (lml, alignment) = run_forward_backward(params, points_along_path, obs)
+    @assert !isnan(lml)
+    trace = ObsModelTrace(gen_fn, path, obs_times, params, points_along_path, obs, lml, alignment)
+    retval = get_retval(trace)
+    return (trace, lml, retval)
+end
+
+function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints::ChoiceMap)
+    old_path, old_obs_times, old_params = get_args(tr)
+    new_path, new_obs_times, new_params = args
+    old_points_along_path = tr.points_along_path
+    new_points_along_path = walk_path(new_path, new_params.nominal_speed, new_obs_times)
+    old_T = length(old_obs_times)
+    new_T = length(new_obs_times)
+    if (new_T == old_T + 1) && has_value(constraints, (:x, new_T)) && has_value(constraints, (:y, new_T))
+        obs = copy(tr.obs)
+        push!(obs, Point(constraints[(:x, new_T)], constraints[(:y, new_T)]))
+    elseif new_T == old_T && isempty(constraints)
+        obs = tr.obs
+    else
+        error("not implemented")
+    end
+    (lml, alignment) = run_forward_backward(new_params, new_points_along_path, obs)
+    @assert !isnan(lml)
+    new_trace = ObsModelTrace(get_gen_fn(tr), new_path, new_obs_times, new_params, new_points_along_path, obs, lml, alignment)
+    return (new_trace, lml - tr.lml, UnknownChange(), EmptyChoiceMap())
+end
+
+function Gen.regenerate(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, selection::Selection)
+    if !isempty(selection)
+        error("not implemented")
+    end
+    (new_trace, weight, retdiff, _) = update(tr, args, argdiffs, EmptyChoiceMap())
+    return (new_trace, weight, retdiff)
+end
+
+
+
 
 export ObsModelParams, path_observation_model

@@ -14,7 +14,7 @@
     C = Point(2,2)
     obs1 = Point(0,0)
     obs2 = Point(1,1)
-    actual = Gen2DAgentMotion.log_marginal_likelihood(obs_params, [A, B, C], [obs1, obs2])
+    (actual, _) = Gen2DAgentMotion.run_forward_backward(obs_params, [A, B, C], [obs1, obs2])
     first_prob_normal = prob_lag + prob_normal
     first_prob_skip = prob_skip
     expected = 0.0
