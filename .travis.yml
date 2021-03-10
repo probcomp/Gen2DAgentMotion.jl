@@ -3,10 +3,12 @@
 
 language: julia
 julia:
-  - 1.4
+  - 1.5
 
 jobs:
   include:
     - stage: test
       script:
         - julia -e 'using Pkg; Pkg.build(); Pkg.test()'
+    - stage: runexample
+      script: "JULIA_PROJECT=examples/minimal julia examples/minimal/run.jl"
