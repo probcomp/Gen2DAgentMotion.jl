@@ -79,8 +79,9 @@ Observed locations are shown in black and conditional posterior samples of the d
 
 You can run the example by entering the `examples/minimal` directory, and running
 ```
-julia --project=. run.jl
+GKSwstype=100 julia --project=. run.jl
 ```
+(setting the `GKSwstype` environment variable is to avoid errors thrown by the plotting library in some environments).
 
 ## Using in more complex models
 
