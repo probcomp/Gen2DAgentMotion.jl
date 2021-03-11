@@ -260,7 +260,7 @@ function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints
     old_path, old_params, old_T = get_args(tr)
     new_path, new_params, new_T = args
     old_points_along_path = tr.points_along_path
-    new_points_along_path = walk_path(new_path, new_params.nominal_speed, T)
+    new_points_along_path = walk_path(new_path, new_params.nominal_speed, new_T)
     if (new_T == old_T + 1) && has_value(constraints, (:x, new_T)) && has_value(constraints, (:y, new_T))
         obs = copy(tr.obs)
         push!(obs, Point(constraints[(:x, new_T)], constraints[(:y, new_T)]))
