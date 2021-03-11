@@ -4,24 +4,18 @@ import Distributions
 using Plots
 import Random
 
-const scene = Gen2DAgentMotion.example_apartment_floorplan()
-const couch = Point(0.15, 0.85)
-
-make_times(dt, T::Int) = collect(range(0.0, step=dt, length=T))
+scene = Gen2DAgentMotion.example_apartment_floorplan()
+couch = Point(0.15, 0.85)
+planner_params = PlannerParams(1000, 1.0, 0.05, 1000, 0.01, 0.02)#PlannerParams(400, 3.0, 200, 0.02)
+obs_params = ObsModelParams(0.05, 0.2, 0.02)
 
 @gen function model(T::Int)
-    planner_params = PlannerParams(1000, 1.0, 0.05, 1000, 0.01, 0.02)#PlannerParams(400, 3.0, 200, 0.02)
-    noise = 0.02
     destination ~ uniform_coord()
     start = couch
     path = Point[start]
     (path_rest, failed, tree) = plan_and_optimize_path(scene, start, Point(destination), planner_params)
     append!(path, path_rest)
-    obs_times = make_times(0.01, T)
-    nominal_speed = 5.0
-    walk_noise = 0.2
-    obs_params = ObsModelParams(nominal_speed, walk_noise, noise)
-    points_along_path_and_alignment = ({:observations} ~ path_observation_model(path, obs_times, obs_params))
+    points_along_path_and_alignment = ({:observations} ~ path_observation_model(path, obs_params, T))
     points_along_path = points_along_path_and_alignment[1]
     alignment = points_along_path_and_alignment[2]
     return (scene, start, path, failed, points_along_path, alignment)

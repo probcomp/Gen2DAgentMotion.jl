@@ -18,13 +18,11 @@ function compute_distances_from_start(path::Vector{Point})
     return distances_from_start
 end
 
-function walk_path(path::Vector{Point}, speed::Float64, times::Vector{Float64})
+function walk_path(path::Vector{Point}, speed::Float64, T::Int)
     distances_from_start = compute_distances_from_start(path)
-    locations = Vector{Point}(undef, length(times))
+    times = collect(0.0:1.0:(T-1))
+    locations = Vector{Point}(undef, T)
     for (time_idx, t) in enumerate(times)
-        if t < 0.0
-            error("times must be positive")
-        end
         desired_distance = t * speed
         used_up_time = false
         # NOTE: can be improved (iterate through path points along with times)
@@ -53,7 +51,7 @@ function walk_path(path::Vector{Point}, speed::Float64, times::Vector{Float64})
 end
 
 struct ObsModelParams
-    nominal_speed::Float64
+    nominal_speed::Float64 # distance per time step
     walk_noise::Float64
     noise::Float64
 end
@@ -171,7 +169,6 @@ end
 struct ObsModelTrace <: Trace
     gen_fn::GenerativeFunction
     path::Vector{Point}
-    obs_times::Vector{Float64}
     params::ObsModelParams
     points_along_path::Vector{Point}
     obs::Vector{Point}
@@ -181,7 +178,7 @@ end
 
 Gen.get_gen_fn(tr::ObsModelTrace) = tr.gen_fn
 Gen.get_retval(trace::ObsModelTrace) = (trace.points_along_path, trace.alignment)
-Gen.get_args(tr::ObsModelTrace) = (tr.path, tr.obs_times, tr.params)
+Gen.get_args(tr::ObsModelTrace) = (tr.path, tr.params, length(tr.obs))
 Gen.get_score(tr::ObsModelTrace) = tr.lml
 Gen.project(tr::ObsModelTrace, ::EmptySelection) = 0.0
 
@@ -233,19 +230,17 @@ function sample_from_obs_model(params::ObsModelParams, points_along_path::Vector
 end
 
 function Gen.simulate(gen_fn::ObsModel, args::Tuple)
-    path, obs_times, params = args
-    points_along_path = walk_path(path, params.nominal_speed, obs_times)
-    T = length(obs_times)
+    path, params, T = args
+    points_along_path = walk_path(path, params.nominal_speed, T)
     obs = sample_from_obs_model(params, points_along_path, T)
     (lml, alignment) = run_forward_backward(params, points_along_path, obs)
     @assert !isnan(lml)
-    return ObsModelTrace(gen_fn, path, obs_times, params, points_along_path, obs, lml, alignment)
+    return ObsModelTrace(gen_fn, path, params, points_along_path, obs, lml, alignment)
 end
 
 function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
-    path, obs_times, params = args
-    T = length(obs_times)
-    points_along_path = walk_path(path, params.nominal_speed, obs_times)
+    path, params, T = args
+    points_along_path = walk_path(path, params.nominal_speed, T)
     obs = Vector{Point}(undef, T)
     if isempty(constraints)
         trace = simulate(gen_fn, args)
@@ -256,18 +251,16 @@ function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
     end
     (lml, alignment) = run_forward_backward(params, points_along_path, obs)
     @assert !isnan(lml)
-    trace = ObsModelTrace(gen_fn, path, obs_times, params, points_along_path, obs, lml, alignment)
+    trace = ObsModelTrace(gen_fn, path, params, points_along_path, obs, lml, alignment)
     retval = get_retval(trace)
     return (trace, lml, retval)
 end
 
 function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints::ChoiceMap)
-    old_path, old_obs_times, old_params = get_args(tr)
-    new_path, new_obs_times, new_params = args
+    old_path, old_params, old_T = get_args(tr)
+    new_path, new_params, new_T = args
     old_points_along_path = tr.points_along_path
-    new_points_along_path = walk_path(new_path, new_params.nominal_speed, new_obs_times)
-    old_T = length(old_obs_times)
-    new_T = length(new_obs_times)
+    new_points_along_path = walk_path(new_path, new_params.nominal_speed, T)
     if (new_T == old_T + 1) && has_value(constraints, (:x, new_T)) && has_value(constraints, (:y, new_T))
         obs = copy(tr.obs)
         push!(obs, Point(constraints[(:x, new_T)], constraints[(:y, new_T)]))
@@ -278,7 +271,7 @@ function Gen.update(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, constraints
     end
     (lml, alignment) = run_forward_backward(new_params, new_points_along_path, obs)
     @assert !isnan(lml)
-    new_trace = ObsModelTrace(get_gen_fn(tr), new_path, new_obs_times, new_params, new_points_along_path, obs, lml, alignment)
+    new_trace = ObsModelTrace(get_gen_fn(tr), new_path, new_params, new_points_along_path, obs, lml, alignment)
     return (new_trace, lml - tr.lml, UnknownChange(), EmptyChoiceMap())
 end
 
@@ -289,8 +282,5 @@ function Gen.regenerate(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, selecti
     (new_trace, weight, retdiff, _) = update(tr, args, argdiffs, EmptyChoiceMap())
     return (new_trace, weight, retdiff)
 end
-
-
-
 
 export ObsModelParams, path_observation_model
