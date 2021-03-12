@@ -55,9 +55,9 @@ the model adds independent isotropic Gaussian noise to each location to generate
 
 The generative function internally marginalizes over the random choices governing the agent's motion along its path using dynamic programming. (Conceptually, this is similar to [dynamic time warping](https://en.wikipedia.org/wiki/Dynamic_time_warping), but computes the sum over all possible alignments between the observed and simulated trajectories, instead of the most likely alignment).
 
-- `ObsModelParams(nominal_speed::Float64, walk_noise::Float64, noise::Float64)`: Parameters for the observation model. `nomimal_speed` is the nominal speed of the agent of the agent as it walks along its piecewise linear path. `walk_noise` is a number between `0.0` (exclusive) and `1.0` (exclusive) that governs how much the agent is expected to deviate from its nominal speed (a value of `0.2` is a reasonable starting point).
+- `ObsModelParams(nominal_speed::Float64, walk_noise::Float64, noise::Float64)`: Parameters for the observation model. `nomimal_speed` is the nominal speed of the agent (distance per unit time step) as it walks along its piecewise linear path. `walk_noise` is a number between `0.0` (exclusive) and `1.0` (exclusive) that governs how much the agent is expected to deviate from its nominal speed (a value of `0.2` is a reasonable starting point).
 
-- `path_observation_model`: The generative function representing the observation model. Takes arguments of the form `(path::Vector{Point}, obs_times::Vector{Float64}, params::ObsModelParams)`, and samples addresses `(:x, 1)`, `(:y, 1)`, ..., `(:x, T)`, `(:y, T)` where `T = length(obs_times)`.
+- `path_observation_model`: The generative function representing the observation model. Takes arguments of the form `(path::Vector{Point}, params::ObsModelParams, T::Int)`, and samples addresses `(:x, 1)`, `(:y, 1)`, ..., `(:x, T)`, `(:y, T)` where `T` is the number of time steps.
 
 ## Installing
 
