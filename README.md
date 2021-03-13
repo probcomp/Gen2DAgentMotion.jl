@@ -35,29 +35,37 @@ followed by simple trajectory optimization.
 
 ## Observation model
 
-The package also includes an observation model for the movement of the agent along a path.
+The package also includes motion and measurement.
 This is a generative model of the measured location of the agent at a set of given time steps.
 The generative model is implemented as a Gen generative function, and takes as input
 the path (a `Vector{Point}`) which defines a piecewise linear path through the scene,
-the set of time points to measure the agent's location,
+the number of time steps (`T::Int`) at which measurements are taken,
 and parameters, which include a nominal speed of the agent along its path,
 and noise parameters.
+
+- `ObsModelParams(nominal_speed::Float64, walk_noise::Float64, noise::Float64)`: Parameters for the observation model. `nomimal_speed` is the nominal speed of the agent (distance per unit time step) as it walks along its piecewise linear path. `walk_noise` is a number between `0.0` (exclusive) and `1.0` (exclusive) that governs how much the agent is expected to deviate from its nominal speed (a value of `0.2` is a reasonable starting point).
 
 The observation model uses two types of noise:
 variability in the agent's movement along its path, and
 Gaussian measurement noise.
 First, the model simulates the agent walking along the given path at its nominal speed,
 and records the location of the agent at each of the to-be-observed time points.
-Then, the model steps through these locations according to a random process, where there some probability that a location will be skipped, some probability that the agent will stay at the previous location, and some probability that the agent will advance to the next location.
+At the first time, the agent is near the start location.
+Then, the model steps through the remaining time steps `2` to `T`.
+At each time step there is some probability that a location will be skipped, some probability that the agent will stay at the previous location, and some probability that the agent will advance to the next location.
 This processes allows the model to be robust to variability in the speed of the agent as it moves along its path.
 Finally, after the paths along the path have been generated,
 the model adds independent isotropic Gaussian noise to each location to generate the observed locations.
 
-The generative function internally marginalizes over the random choices governing the agent's motion along its path using dynamic programming. (Conceptually, this is similar to [dynamic time warping](https://en.wikipedia.org/wiki/Dynamic_time_warping), but computes the sum over all possible alignments between the observed and simulated trajectories, instead of the most likely alignment).
+There are three variants of the generative function exported by this package.
+All three have the same arguments and return value signatures:
+They take arguments of the form `(path::Vector{Point}, params::ObsModelParams, T::Int)`, and samples addresses `(:x, 1)`, `(:y, 1)`, ..., `(:x, T)`, `(:y, T)` where `T` is the number of time steps.
 
-- `ObsModelParams(nominal_speed::Float64, walk_noise::Float64, noise::Float64)`: Parameters for the observation model. `nomimal_speed` is the nominal speed of the agent (distance per unit time step) as it walks along its piecewise linear path. `walk_noise` is a number between `0.0` (exclusive) and `1.0` (exclusive) that governs how much the agent is expected to deviate from its nominal speed (a value of `0.2` is a reasonable starting point).
+- `motion_and_measurement_model_uncollapsed`: This variant does not marginalize over nuisance variables that determine how fast the agent moves along its path. These random choices have addresses `:steps => t` for each `t` in `1:T`.
 
-- `path_observation_model`: The generative function representing the observation model. Takes arguments of the form `(path::Vector{Point}, params::ObsModelParams, T::Int)`, and samples addresses `(:x, 1)`, `(:y, 1)`, ..., `(:x, T)`, `(:y, T)` where `T` is the number of time steps.
+- `export motion_and_measurement_model_collapsed`: This variant does marginalize over the random choices governing the agent's motion along its path, using dynamic programming. (Conceptually, this is similar to [dynamic time warping](https://en.wikipedia.org/wiki/Dynamic_time_warping), but computes the sum over all possible alignments between the observed and simulated trajectories, instead of the most likely alignment). The only random choices are the observations themselves.
+
+- `export motion_and_measurement_model_collapsed_incremental`: This is semantically equivalent to `motion_and_measurement_model_collapsed` but uses a fast incremental implementation of `Gen.update` in the case where the trace is extended with additional time steps. This variant uses an incrementalized version of the dynamic programming algorithm to compute the new log marginal likelihood, instead of computing it from scratch.
 
 ## Installing
 
