@@ -1,6 +1,13 @@
 using Gen
 using FunctionalCollections: PersistentVector, push, assoc
 
+export ObsModelParams
+export motion_and_measurement_model_uncollapsed
+export motion_and_measurement_model_collapsed
+export motion_and_measurement_model_collapsed_incremental
+export walk_path
+export log_marginal_likelihood
+
 function path_length(start::Point, path::Vector{Point})
     @assert length(path) > 0
     len = dist(start, path[1])
@@ -195,7 +202,8 @@ end
     return log_probs
 end
 
-@inline function populate_initial_alpha!(alpha, params::ObsModelParams, points_along_path::AbstractVector{Point}, obs1::Point)
+@inline function populate_initial_alpha!(
+        alpha, params::ObsModelParams, points_along_path::AbstractVector{Point}, obs1::Point)
     @assert length(alpha) == length(points_along_path)
     if length(alpha) == 1
         alpha[1] = noise_log_likelihood(params, points_along_path[1], obs1)
@@ -209,6 +217,7 @@ end
     return nothing
 end
 
+# non-incremental forward algorithm
 function forward_filtering(
         params::ObsModelParams, points_along_path::AbstractVector{Point}, obs::AbstractVector{Point})
 
@@ -236,6 +245,7 @@ function forward_filtering(
     return (alphas_persistent, log_marginal_likelihood)
 end
 
+# backwards sampling, given alphas from forward algorithm
 function backwards_sampling(
         params::ObsModelParams, points_along_path::Vector{Point}, obs::Vector{Point},
         alphas)
@@ -272,13 +282,7 @@ function log_marginal_likelihood(
     return logsumexp(alpha)
 end
 
-#################################
-# incremental forward algorithm #
-#################################
-
-# the state is alphas::PersistentVector{PersistentVector{Float64}} which is a set of T vectors, each of length K
-# (actually it will always be K = T, but this code does not use that information) 
-
+# incremental forward algorithm
 function forward_filtering_incremental(
         params::ObsModelParams,
         points_along_path::AbstractVector{Point}, obs::AbstractVector{Point},
@@ -323,9 +327,10 @@ function forward_filtering_incremental(
 end
 
 
-###############
-# DML version #
-###############
+###########################################
+#           generative function 1         #
+# uncollapsed motion and measuremnt model #
+###########################################
 
 @gen function gaussian_noise(std::Real, pt::Point, t::Int)
     x = ({(:x, t)} ~ normal(pt.x, std))
@@ -333,10 +338,11 @@ end
     return Point(x, y)
 end
 
-@gen function dml_path_observation_model(path::AbstractVector{Point}, params::ObsModelParams, T::Int)
+@gen function motion_and_measurement_model_uncollapsed(
+        path::AbstractVector{Point}, params::ObsModelParams, T::Int)
 
     # initialize
-    obs = Vector{Point}(undef, T) # measurements
+    obs = PersistentVector{Point}() # measurements
     (points, prev_pt_idx, dist_past_prev_pt) = walk_path(path, params.nominal_speed, T)
     k = length(points)
     alignment = Vector{Int}(undef, T)
@@ -347,7 +353,7 @@ end
         probs = [prob_lag(params) + prob_normal(params), prob_skip(params)]
         alignment[1] += ({:steps => 1} ~ categorical(probs / sum(probs))) - 1
     end
-    obs[1] = ({*} ~ gaussian_noise(params.noise, points[alignment[1]], 1))
+    obs = push(obs, ({*} ~ gaussian_noise(params.noise, points[alignment[1]], 1)))
 
     # for each remaining time step, advance by 0, 1, or 2 steps
     for t in 2:T
@@ -355,17 +361,16 @@ end
         _prob_normal = (alignment[t-1] < k) ? prob_normal(params) : 0.0
         probs = [prob_lag(params), _prob_normal, _prob_skip]
         alignment[t] = alignment[t-1] + ({(:steps => t)} ~ categorical(probs / sum(probs))) - 1
-        obs[t] = ({*} ~ gaussian_noise(params.noise, points[alignment[t]], t))
+        obs = push(obs, ({*} ~ gaussian_noise(params.noise, points[alignment[t]], t)))
     end
     return (points, obs, prev_pt_idx, dist_past_prev_pt)
 end
 
-export dml_path_observation_model
-
-
-##############################
-# custom generative function #
-##############################
+###########################################
+#       generative functions 2 and 3      #
+# collapsed motion and measurement model  #
+#    (incremental and non-incremental)    #
+###########################################
 
 using FunctionalCollections: PersistentVector
 
@@ -390,33 +395,34 @@ struct ObsModelTrace <: Trace
     lml::Float64
 
     # cached state of forward algorithm
-    # TODO this is probably only with it for very large T (e.g. in hundreds or more)
-    # do a benchmark where we set the speed to very small, and do sequential importance sampling
     alphas::PersistentVector{PersistentVector{Float64}}
 end
 
-Gen.get_gen_fn(tr::ObsModelTrace) = tr.gen_fn
-Gen.get_retval(tr::ObsModelTrace) = (tr.points, tr.obs, tr.prev_pt_idx, tr.dist_past_prev_pt) # TODO XXX breaking interface change
-Gen.get_args(tr::ObsModelTrace) = (tr.path, tr.params, length(tr.obs))
-Gen.get_score(tr::ObsModelTrace) = tr.lml
-Gen.project(tr::ObsModelTrace, ::EmptySelection) = 0.0
+Gen.get_gen_fn(trace::ObsModelTrace) = trace.gen_fn
+Gen.get_retval(trace::ObsModelTrace) = (trace.points, trace.obs, trace.prev_pt_idx, trace.dist_past_prev_pt)
+Gen.get_args(trace::ObsModelTrace) = (trace.path, trace.params, length(trace.obs))
+Gen.get_score(trace::ObsModelTrace) = trace.lml
+Gen.project(trace::ObsModelTrace, ::EmptySelection) = 0.0
 
-function Gen.get_choices(tr::ObsModelTrace)
+function Gen.get_choices(trace::ObsModelTrace)
     cm = choicemap()
-    for (i, pt) in enumerate(tr.obs)
+    for (i, pt) in enumerate(trace.obs)
         cm[(:x, i)] = pt.x
         cm[(:y, i)] = pt.y
     end
     return cm
 end
 
-struct ObsModel <: GenerativeFunction{Tuple{Vector{Point},Vector{Int}},ObsModelTrace} end
+struct ObsModel <: GenerativeFunction{Tuple{Vector{Point},Vector{Int}},ObsModelTrace}
+    incremental::Bool
+end
 
-const path_observation_model = ObsModel()
+const motion_and_measurement_model_collapsed = ObsModel(false)
+const motion_and_measurement_model_collapsed_incremental = ObsModel(true)
 
 function Gen.simulate(gen_fn::ObsModel, args::Tuple)
     path, params, T = args
-    (points, obs, prev_pt_idx, dist_past_prev_pt) = dml_path_observation_model(path, params, T)
+    (points, obs, prev_pt_idx, dist_past_prev_pt) = motion_and_measurement_model_uncollapsed(path, params, T)
     (alphas, lml) = forward_filtering(params, points, obs)
     @assert !isnan(lml)
     return ObsModelTrace(gen_fn, path, params, prev_pt_idx, dist_past_prev_pt, points, obs, lml, alphas)
@@ -451,9 +457,11 @@ end
 
 # handles changes to path and/or params
 function Gen.update(
-        tr::ObsModelTrace, args::Tuple,
-        argdiffs::Tuple{T,U,NoChange},
-        constraints::ChoiceMap) where {T,U}
+        trace::ObsModelTrace, args::Tuple,
+        argdiffs::Tuple{U,V,NoChange},
+        constraints::ChoiceMap) where {U,V}
+
+    (new_path, new_params, T) = args 
 
     if !isempty(constraints)
         error("not implemented")
@@ -461,25 +469,26 @@ function Gen.update(
 
     # TODO: if we only changed the parameters and not the path, then we wouldn't
     # need to re-walk it..
-    (new_points, prev_pt_idx, dist_past_prev_pt) = walk_path(new_path, new_params.nominal_speed, new_T)
+    (new_points, prev_pt_idx, dist_past_prev_pt) = walk_path(new_path, new_params.nominal_speed, T)
 
-    # need to run forward-backward from scratch
-    obs = tr.obs
+    # run forward-backward from scratch
+    obs = trace.obs
+    @assert length(obs) == T
     (alphas, lml) = forward_filtering(new_params, new_points, obs)
     @assert !isnan(lml)
 
     new_trace = ObsModelTrace(
-        get_gen_fn(tr), new_path, new_params, prev_pt_idx, dist_past_prev_pt, new_points, obs, lml, alphas)
-    return (new_trace, lml - tr.lml, UnknownChange(), EmptyChoiceMap())
+        get_gen_fn(trace), new_path, new_params, prev_pt_idx, dist_past_prev_pt, new_points, obs, lml, alphas)
+    return (new_trace, lml - trace.lml, UnknownChange(), EmptyChoiceMap())
 end
 
 # handles extensions to time steps, but not changes to path or params
 function Gen.update(
-        tr::ObsModelTrace, args::Tuple,
+        trace::ObsModelTrace, args::Tuple,
         argdiffs::Tuple{NoChange,NoChange,UnknownChange},
         constraints::ChoiceMap)
 
-    (path, params, old_T) = get_args(tr)
+    (path, params, old_T) = get_args(trace)
     (_, _, new_T) = args
 
     if new_T < old_T
@@ -489,47 +498,57 @@ function Gen.update(
     # TODO also check that the earlier time steps aren't constrained..
     # because this is not implemented either
 
-    # the number of time steps changes, incrementalize this, so that update can
+    local alphas::PersistentVector{PersistentVector{Float64}}
+    local prev_pt_idx::Int
+    local dist_past_prev_pt::Float64
+    local points::PersistentVector{Point}
+    local obs::PersistentVector{Point} = trace.obs
+    local lml::Float64
 
-    # TODO it can be faster to do the increment in batch, instead of one at a time
-    # but this code is simpler, so we start with this.
+    if get_gen_fn(trace).incremental
 
-    # NOTE: we guarantee that we don't change the previous entries, so as long as 
-    # the other trace doesn't determine T or K by the bounds of alphas, we are okay
-    # (we are the only code that reads from alphas..; so this is a contract
-    # with ourselves). therefore we don't need to copy any data here.
-    # the only problem is if this code gets called twice on the same trace, but with different observations
-    # then it breaks...
-    # TODO.. we could use a linked list? the full PersistentVector of PersistentVectors is overkill 
-    # since we guarantee that the old elements are never modified.
+        # incrementally walk path and 
+        # incremental forward filtering
+        alphas = trace.alphas 
+        prev_pt_idx = trace.prev_pt_idx
+        dist_past_prev_pt = trace.dist_past_prev_pt
+        points = trace.points
+        lml = trace.lml
+        for T in (old_T+1):new_T
+            (points, prev_pt_idx, dist_past_prev_pt) = walk_path_incremental(
+                path, params.nominal_speed, points, 1,
+                prev_pt_idx, dist_past_prev_pt)
+            @assert length(points) == T
+    
+            obs = push(obs, Point(constraints[(:x, T)], constraints[(:y, T)]))
+            (alphas, lml) = forward_filtering_incremental(params, points, obs, alphas)
+            @assert !isnan(lml)
+        end
 
-    alphas = tr.alphas 
-    prev_pt_idx = tr.prev_pt_idx
-    dist_past_prev_pt = tr.dist_past_prev_pt
-    points = tr.points
-    obs = tr.obs
-    for T in old_T+1:new_T
-        (points, prev_pt_idx, dist_past_prev_pt) = walk_path_incremental(
-            path, params.nominal_speed, points, 1,
-            prev_pt_idx, dist_past_prev_pt)
-        @assert length(points) == T
+    else
 
-        obs = push(obs, Point(constraints[(:x, T)], constraints[(:y, T)]))
-        (alphas, lml) = forward_filtering_incremental(params, points, obs, alphas)
+        # non-incremental walk path
+        # non-incremental forward filtering
+        (points, prev_pt_idx, dist_past_prev_pt) = walk_path(path, params.nominal_speed, new_T)
+        for T in (old_T+1):new_T
+            obs = push(obs, Point(constraints[(:x, T)], constraints[(:y, T)]))
+        end
+        (alphas, lml) = forward_filtering(params, points, obs)
         @assert !isnan(lml)
     end
 
     new_trace = ObsModelTrace(
-        get_gen_fn(tr), path, params, prev_pt_idx, dist_past_prev_pt, points, obs, lml, alphas)
-    return (new_trace, lml - tr.lml, UnknownChange(), EmptyChoiceMap())
+        get_gen_fn(trace), path, params, prev_pt_idx, dist_past_prev_pt, points, obs, lml, alphas)
+
+    return (new_trace, lml - trace.lml, UnknownChange(), EmptyChoiceMap())
 end
 
-function Gen.regenerate(tr::ObsModelTrace, args::Tuple, argdiffs::Tuple, selection::Selection)
+function Gen.regenerate(trace::ObsModelTrace, args::Tuple, argdiffs::Tuple, selection::Selection)
     if !isempty(selection)
         error("not implemented")
     end
-    (new_trace, weight, retdiff, _) = update(tr, args, argdiffs, EmptyChoiceMap())
+    (new_trace, weight, retdiff, _) = update(trace, args, argdiffs, EmptyChoiceMap())
     return (new_trace, weight, retdiff)
 end
 
-export ObsModelParams, path_observation_model
+
