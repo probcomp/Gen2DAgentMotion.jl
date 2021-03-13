@@ -171,9 +171,9 @@ end
     (_, expected) = Gen2DAgentMotion.forward_filtering(params, [A, B, C, D], [obs1, obs2, obs3, obs4])
 
     # check that we get the same lml if we compute it in batch versus incremetnally
-    (alphas, lml1) = Gen2DAgentMotion.forward_filtering(params, [A], [obs1])
-    (alphas, lml2) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B], [obs1, obs2], alphas)
-    (alphas, lml3) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C], [obs1, obs2, obs3], alphas)
-    (alphas, lml4) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C, D], [obs1, obs2, obs3, obs4], alphas)
-    @test isapprox(lml1 + lml2 + lml3 + lml4, expected)
+    (alphas, _) = Gen2DAgentMotion.forward_filtering(params, [A], [obs1])
+    (alphas, _) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B], [obs1, obs2], alphas)
+    (alphas, _) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C], [obs1, obs2, obs3], alphas)
+    (alphas, actual) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C, D], [obs1, obs2, obs3, obs4], alphas)
+    @test isapprox(actual, expected)
 end

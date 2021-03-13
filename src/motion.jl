@@ -171,7 +171,7 @@ end
 end
 
 @inline function populate_new_alpha!(
-        new_alpha, prev_alpha, points_along_path::Vector{Point}, obs_t::Point, params::ObsModelParams)
+        new_alpha, prev_alpha, points_along_path::AbstractVector{Point}, obs_t::Point, params::ObsModelParams)
     @assert length(new_alpha) == length(points_along_path)
     @assert length(prev_alpha) == length(points_along_path)
     for k in 1:length(points_along_path)
@@ -195,7 +195,7 @@ end
     return log_probs
 end
 
-@inline function populate_initial_alpha!(alpha, params::ObsModelParams, points_along_path::Vector{Point}, obs1::Point)
+@inline function populate_initial_alpha!(alpha, params::ObsModelParams, points_along_path::AbstractVector{Point}, obs1::Point)
     @assert length(alpha) == length(points_along_path)
     if length(alpha) == 1
         alpha[1] = noise_log_likelihood(params, points_along_path[1], obs1)
@@ -210,7 +210,7 @@ end
 end
 
 function forward_filtering(
-        params::ObsModelParams, points_along_path::Vector{Point}, obs::Vector{Point})
+        params::ObsModelParams, points_along_path::AbstractVector{Point}, obs::AbstractVector{Point})
 
     K = length(points_along_path)
     T = length(obs)
@@ -259,7 +259,7 @@ end
 # (and therefore cannot be used for backwards samping
 # or incrementally doing forward algorithm)
 function log_marginal_likelihood(
-        params::ObsModelParams, points_along_path::Vector{Point}, obs::Vector{Point})
+        params::ObsModelParams, points_along_path::AbstractVector{Point}, obs::AbstractVector{Point})
     K = length(points_along_path)
     T = length(obs)
     alpha = Vector{Float64}(undef, K)
