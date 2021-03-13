@@ -1,5 +1,11 @@
 # This file is machine-generated - editing it directly is not advised
 
+[[Artifacts]]
+deps = ["Pkg"]
+git-tree-sha1 = "c30985d8821e0cd73870b17b0ed0ce6dc44cb744"
+uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
+version = "1.3.0"
+
 [[Base64]]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 
@@ -85,6 +91,11 @@ version = "0.3.5"
 deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 
+[[JLLWrappers]]
+git-tree-sha1 = "a431f5f2ca3f4feef3bd7a5e94b8b8d4f2f647a0"
+uuid = "692b3bcd-3c85-4b1f-b108-f13ce0eb3210"
+version = "1.2.0"
+
 [[JSON]]
 deps = ["Dates", "Mmap", "Parsers", "Unicode"]
 git-tree-sha1 = "81690084b6198a2e1da36fcfda16eeca9f9f24e4"
@@ -92,6 +103,7 @@ uuid = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 version = "0.21.1"
 
 [[LibGit2]]
+deps = ["Printf"]
 uuid = "76f85450-5226-5b5a-8eaa-529ad045b433"
 
 [[Libdl]]
@@ -129,10 +141,10 @@ uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "0.3.4"
 
 [[OpenSpecFun_jll]]
-deps = ["CompilerSupportLibraries_jll", "Libdl", "Pkg"]
-git-tree-sha1 = "d51c416559217d974a1113522d5919235ae67a87"
+deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "9db77584158d0ab52307f8c04f8e7c08ca76b5b3"
 uuid = "efe28fd5-8261-553b-a9e1-b2916fc3738e"
-version = "0.5.3+3"
+version = "0.5.3+4"
 
 [[OrderedCollections]]
 git-tree-sha1 = "16c08bf5dba06609fe45e30860092d6fa41fde7b"
@@ -152,7 +164,7 @@ uuid = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
 version = "1.0.10"
 
 [[Pkg]]
-deps = ["Dates", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "Test", "UUIDs"]
+deps = ["Dates", "LibGit2", "Libdl", "Logging", "Markdown", "Printf", "REPL", "Random", "SHA", "UUIDs"]
 uuid = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 
 [[Printf]]

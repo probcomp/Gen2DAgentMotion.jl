@@ -15,21 +15,20 @@ obs_params = ObsModelParams(0.05, 0.2, 0.02)
     path = Point[start]
     (path_rest, failed, tree) = plan_and_optimize_path(scene, start, Point(destination), planner_params)
     append!(path, path_rest)
-    points_along_path_and_alignment = ({:observations} ~ path_observation_model(path, obs_params, T))
-    points_along_path = points_along_path_and_alignment[1]
-    alignment = points_along_path_and_alignment[2]
-    return (scene, start, path, failed, points_along_path, alignment)
+    (points_along_path, obs, _, _) = ({:observations} ~ motion_and_measurement_model_collapsed_incremental(
+        path, obs_params, T))
+    return (scene, start, path, failed, points_along_path)
 end
 
 get_path(trace) = get_retval(trace)[3]
 get_T(trace) = get_args(trace)[1]
 get_points_along_path(trace) = get_retval(trace)[5]
-get_alignment(trace) = get_retval(trace)[6]
+#get_alignment(trace) = get_retval(trace)[6]
 
 function generate_synthetic_data()
     T = 10
     trace = simulate(model, (T,))
-    (_, _, path, failed) = get_retval(trace)
+    (_, _, path, failed, _) = get_retval(trace)
     observations = Vector{Point}(undef, T)
     for t in 1:T
         observations[t] = Point(trace[:observations => (:x, t)], trace[:observations => (:y, t)])

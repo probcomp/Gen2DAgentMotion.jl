@@ -363,6 +363,7 @@ end
         alignment[t] = alignment[t-1] + ({(:steps => t)} ~ categorical(probs / sum(probs))) - 1
         obs = push(obs, ({*} ~ gaussian_noise(params.noise, points[alignment[t]], t)))
     end
+
     return (points, obs, prev_pt_idx, dist_past_prev_pt)
 end
 
@@ -413,7 +414,9 @@ function Gen.get_choices(trace::ObsModelTrace)
     return cm
 end
 
-struct ObsModel <: GenerativeFunction{Tuple{Vector{Point},Vector{Int}},ObsModelTrace}
+struct ObsModel <: GenerativeFunction{
+        Tuple{PersistentVector{Point},PersistentVector{Point},Int,Float64},
+        ObsModelTrace}
     incremental::Bool
 end
 
