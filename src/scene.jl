@@ -10,6 +10,8 @@ function Point(vec::Vector{Float64})
     return Point(vec[1], vec[2])
 end
 
+Base.isapprox(a::Point, b::Point) = isapprox(a.x, b.x) && isapprox(a.y, b.y)
+
 function dist(a::Point, b::Point)
     dx = a.x - b.x
     dy = a.y - b.y
