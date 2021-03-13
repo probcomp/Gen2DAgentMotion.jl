@@ -47,6 +47,14 @@
         end
     end
 
+    #function test_walk_path_to_end(path, speed, expected_points)
+        #points = Gen2DAgentMotion.walk_path(path, speed)
+        #@test length(points) == length(expected_points)
+        #for t in 1:length(expected_points)
+            #@test isapprox(points[t], expected_points[t])
+        #end
+    #end
+
     function test_walk_path_incremental(path, speed, expected_points)
         T = length(expected_points)
         # T1 is number of initial steps
@@ -79,6 +87,7 @@
         Point(1, 1), Point(1, 1), Point(1, 1)]
     test_walk_path(path, speed, expected_points)
     test_walk_path_incremental(path, speed, expected_points)
+    #test_walk_path_to_end(path, speed, expected_points)
 
     # case where the distance to walk brings you exactly to a path point
     path = Point[Point(0, 0), Point(0, 1), Point(1, 1)]
@@ -88,6 +97,7 @@
         Point(1, 1), Point(1, 1), Point(1, 1)]
     test_walk_path(path, speed, expected_points)
     test_walk_path_incremental(path, speed, expected_points)
+    #test_walk_path_to_end(path, speed, expected_points)
 
     # case where the input path has some consecutive points
     path = Point[Point(0, 0), Point(0, 1), Point(0, 1), Point(0, 1), Point(1, 1), Point(1, 1)]
@@ -97,9 +107,10 @@
         Point(1, 1), Point(1, 1), Point(1, 1)]
     test_walk_path(path, speed, expected_points)
     test_walk_path_incremental(path, speed, expected_points)
+    #test_walk_path_to_end(path, speed, expected_points)
 end
 
-@testset "dynamic programming" begin
+@testset "forward filtering" begin
 
     nominal_speed = 0.1
     walk_noise = 0.2
@@ -108,14 +119,17 @@ end
     prob_normal = 0.6
     walk_noise = prob_lag + prob_skip
     noise = 1.0
-    obs_params = ObsModelParams(nominal_speed, walk_noise, noise)
-    likelihood(a, b) = exp(Gen2DAgentMotion.noise_log_likelihood(obs_params, a, b))
+    params = ObsModelParams(nominal_speed, walk_noise, noise)
+
+    # test the log marginal likelihood against hand-computed value
+
+    likelihood(a, b) = exp(Gen2DAgentMotion.noise_log_likelihood(params, a, b))
     A = Point(0,0)
     B = Point(1,1)
     C = Point(2,2)
     obs1 = Point(0,0)
     obs2 = Point(1,1)
-    (actual, _) = Gen2DAgentMotion.run_forward_backward(obs_params, [A, B, C], [obs1, obs2])
+    (alphas, actual) = Gen2DAgentMotion.forward_filtering(params, [A, B, C], [obs1, obs2])
     first_prob_normal = prob_lag + prob_normal
     first_prob_skip = prob_skip
     expected = 0.0
@@ -131,4 +145,35 @@ end
     expected += first_prob_skip * prob_normal * likelihood(B, obs1) * likelihood(C, obs2)
     @test isapprox(actual, log(expected))
 
+end
+
+@testset "incremental forward filtering" begin
+
+    nominal_speed = 0.1
+    walk_noise = 0.2
+    prob_lag = 0.2
+    prob_skip = 0.2
+    prob_normal = 0.6
+    walk_noise = prob_lag + prob_skip
+    noise = 1.0
+    params = ObsModelParams(nominal_speed, walk_noise, noise)
+
+    A = Point(0,0)
+    B = Point(1,1)
+    C = Point(2,2)
+    D = Point(2,3)
+    obs1 = Point(0,0)
+    obs2 = Point(1,1)
+    obs3 = Point(1,2)
+    obs4 = Point(2,3)
+
+    # batch
+    (_, expected) = Gen2DAgentMotion.forward_filtering(params, [A, B, C, D], [obs1, obs2, obs3, obs4])
+
+    # check that we get the same lml if we compute it in batch versus incremetnally
+    (alphas, lml1) = Gen2DAgentMotion.forward_filtering(params, [A], [obs1])
+    (alphas, lml2) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B], [obs1, obs2], alphas)
+    (alphas, lml3) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C], [obs1, obs2, obs3], alphas)
+    (alphas, lml4) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C, D], [obs1, obs2, obs3, obs4], alphas)
+    @test isapprox(lml1 + lml2 + lml3 + lml4, expected)
 end
