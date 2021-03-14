@@ -23,8 +23,16 @@ end
 get_path(trace) = get_retval(trace)[3]
 get_T(trace) = get_args(trace)[1]
 get_points_along_path(trace) = get_retval(trace)[5]
-#get_alignment(trace) = get_retval(trace)[6]
 
+function get_observations(trace)
+    T = get_T(trace)
+    observations = Vector{Point}(undef, T)
+    for t in 1:T
+        observations[t] = Point(
+            trace[:observations => (:x, t)], trace[:observations => (:y, t)])
+    end
+    return observations
+end
 function generate_synthetic_data()
     T = 10
     trace = simulate(model, (T,))
