@@ -7,6 +7,7 @@ export motion_and_measurement_model_collapsed
 export motion_and_measurement_model_collapsed_incremental
 export walk_path
 export log_marginal_likelihood
+export sample_alignment
 
 function path_length(start::Point, path::Vector{Point})
     @assert length(path) > 0
@@ -422,6 +423,25 @@ end
 
 const motion_and_measurement_model_collapsed = ObsModel(false)
 const motion_and_measurement_model_collapsed_incremental = ObsModel(true)
+
+@gen function sample_alignment(
+        params::ObsModelParams, points_along_path::AbstractVector{Point}, obs::AbstractVector{Point})
+
+    (alphas, _) = forward_filtering(params, points_along_path, obs)
+    T = length(obs)
+    K = length(points_along_path)
+
+    alignment = Vector{Int}(undef, length(points_along_path))
+    ldist = alphas[T]
+    dist = exp.(ldist .- logsumexp(ldist))
+    alignment[T] = ({(:alignment, T)} ~ categorical(dist))
+    for t in T-1:-1:1
+        ldist = alphas[t] .+ forward_transition_log_probs(alignment[t+1], params, K)
+        dist = exp.(ldist .- logsumexp(ldist))
+        alignment[t] = ({(:alignment, t)} ~ categorical(dist))
+    end
+    return alignment
+end
 
 function Gen.simulate(gen_fn::ObsModel, args::Tuple)
     path, params, T = args
