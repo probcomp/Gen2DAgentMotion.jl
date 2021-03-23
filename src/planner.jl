@@ -1,5 +1,7 @@
 # depends on scene.jl
 
+using Gen
+
 ##############################################
 # rapidly exploring random tree for 2D point #
 ##############################################
@@ -81,6 +83,13 @@ end
     return Point(x, y)
 end
 
+@gen function gen_random_config(bounds)
+    # NOTE: it won't be inlined...
+    x ~ uniform(bounds.xmin, bounds.xmax)
+    y ~ uniform(bounds.ymin, bounds.ymax)
+    return Point(x, y)
+end
+
 function select_control(walls, target_conf::Point, start_conf::Point, dt::Float64)
 
     dist_to_target = dist(start_conf, target_conf)
@@ -119,6 +128,22 @@ function rrt(bounds::Bounds, walls::Vector, init::Point, iters::UInt, dt::Float6
     end
     return tree
 end
+
+@gen function gen_rrt(bounds::Bounds, walls::Vector, init::Point, iters::UInt, dt::Float64)
+    tree = RRTTree(init, iters)
+    local near_node::UInt
+    for iter=1:iters
+        rand_conf::Point = ({iter} ~ gen_random_config(bounds))
+        near_node = nearest_neighbor(rand_conf, tree.confs, tree.num_nodes)
+        result = select_control(walls, rand_conf, Point(tree.confs[1,near_node], tree.confs[2,near_node]), dt)
+        if !result.failed
+            cost_from_start = tree.costs_from_start[near_node] + result.cost
+            add_node!(tree, near_node, result.new_conf, result.control, cost_from_start)
+        end
+    end
+    return tree
+end
+
 
 ##############################
 # path planner that uses RRT #
@@ -189,7 +214,7 @@ function simplify_path(scene::Scene, original::Path; spacing=0.05)
     add_intermediate_points!(new_points, original.goal, spacing)
     push!(new_points, original.goal)
     path = Path(original.start, original.goal, new_points)
-    #@assert check_path_clear(path, scene)
+    @assert check_path_clear(path, scene)
     return path
 end
 
@@ -248,11 +273,8 @@ function refine_path(
                 intersects(wall, prev_point, cur_3) +
                 intersects(wall, cur_3, next_point) +
                 intersects(wall, prev_point, cur_4) +
-                intersects(wall, cur_4, next_point))
-                #Inf * (
-                    #intersects(wall, prev_point, point) +
-                    #intersects(wall, point, next_point)
-                #))
+                intersects(wall, cur_4, next_point) +
+                ((intersects(wall, prev_point, point) || intersects(wall, point, next_point)) ? 5 : 0.0))
 
             adjusted_cost += (
                 intersects(wall, prev_point, adjusted_1) +
@@ -262,11 +284,8 @@ function refine_path(
                 intersects(wall, prev_point, adjusted_3) +
                 intersects(wall, adjusted_3, next_point) +
                 intersects(wall, prev_point, adjusted_4) +
-                intersects(wall, adjusted_4, next_point))
-                #Inf * (
-                    #intersects(wall, prev_point, adjusted) +
-                    #intersects(wall, adjusted, next_point)
-                #))
+                intersects(wall, adjusted_4, next_point) +
+                ((intersects(wall, prev_point, adjusted) || intersects(wall, adjusted, next_point)) ? 5 : 0.0))
         end
         if adjusted_cost < cur_cost
             # buffer scores between 0 and 4
@@ -279,10 +298,11 @@ end
 function optimize_path(
         scene::Scene, original::Path,
         refine_iters::UInt, refine_std::Float64, spacing::Float64, refine_gap::Float64)
+    @assert check_path_clear(original, scene)
     simplified = simplify_path(scene, original; spacing=spacing)
-    #@assert check_path_clear(simplified, scene)
+    @assert check_path_clear(simplified, scene)
     refined = refine_path(scene, simplified, refine_iters, refine_std, refine_gap)
-    #@assert check_path_clear(refined, scene)
+    @assert check_path_clear(refined, scene)
     return refined 
 end
 
@@ -304,15 +324,7 @@ function check_path_clear(path::Path, scene::Scene)
     return true
 end
 
-"""
-Plan path from start to goal that avoids obstacles in the scene.
-"""
-function plan_path(
-        start::Point, goal::Point, scene::Scene,
-        params::PlannerParams=PlannerParams(2000, 3.0, 0.05, 10000, 1.0, 0.02))
-
-    tree = rrt(scene.bounds, scene.walls, start, params.rrt_iters, params.rrt_dt)
-
+function best_path_on_tree_to_goal(scene, tree, goal)
     # find the best path along the tree to the goal, if one exists
     best_node = 0
     min_cost = Inf
@@ -334,47 +346,90 @@ function plan_path(
             best_conf = conf
         end
     end
-    if path_found
-        best_node = rand(all_valid_nodes)
-        best_conf = get_conf_point(tree, best_node)
+
+    return (path_found, all_valid_nodes)
+end
+
+function construct_path(tree, tree_node, goal, start)
+    conf = get_conf_point(tree, tree_node)
+
+    # extend the tree to the goal configuration
+    control = Point(goal.x - conf.x, goal.y - conf.y) 
+    goal_node = add_node!(tree, tree_node, goal, control, NaN)
+    points = Array{Point,1}()
+    node = goal_node
+    push!(points, get_conf_point(tree, goal_node))
+    # the path will contain the start and goal
+    while node != 1
+        node = tree.parents[node]
+        push!(points, get_conf_point(tree, node))
     end
+    @assert points[end] == start # the start point
+    @assert points[1] == goal
+    path = Path(start, goal, reverse(points))
+    #@assert check_path_clear(path, scene)
+    return path
+end
+
+"""
+Plan path from start to goal that avoids obstacles in the scene.
+"""
+function plan_path(
+        start::Point, goal::Point, scene::Scene,
+        params::PlannerParams=PlannerParams(2000, 3.0, 0.05, 10000, 1.0, 0.02))
+
+    tree = rrt(scene.bounds, scene.walls, start, params.rrt_iters, params.rrt_dt)
+    (path_found, all_valid_tree_nodes) = best_path_on_tree_to_goal(scene, tree, goal)
 
     local path::Union{Nothing,Path}
     if path_found
-        # extend the tree to the goal configuration
-        control = Point(goal.x - best_conf.x, goal.y - best_conf.y) 
-        goal_node = add_node!(tree, best_node, goal, control, NaN)
-        points = Array{Point,1}()
-        node = goal_node
-        push!(points, get_conf_point(tree, goal_node))
-        # the path will contain the start and goal
-        while node != 1
-            node = tree.parents[node]
-            push!(points, get_conf_point(tree, node))
-        end
-        @assert points[end] == start # the start point
-        @assert points[1] == goal
-        path = Path(start, goal, reverse(points))
-        #@assert check_path_clear(path, scene)
+        chosen_tree_node = rand(all_valid_tree_nodes) # random choice XXX
+        path = construct_path(tree, chosen_tree_node, goal, start)
     else
         path = nothing
     end
     
-    return path, tree
+    return (path, tree)
 end
 
-function plan_and_optimize_path(scene, prev_loc, loc, params)
-    (path, tree) = plan_path(prev_loc, loc, scene, params)
+@gen function gen_plan_path(
+        start::Point, goal::Point, scene::Scene,
+        params::PlannerParams=PlannerParams(2000, 3.0, 0.05, 10000, 1.0, 0.02))
+
+    tree ~ gen_rrt(scene.bounds, scene.walls, start, params.rrt_iters, params.rrt_dt)
+    (path_found, all_valid_tree_nodes) = best_path_on_tree_to_goal(scene, tree, goal)
+
+    local path::Union{Nothing,Path}
+    if path_found
+        @assert length(all_valid_tree_nodes) > 0
+        chosen_tree_node = all_valid_tree_nodes[({:chosen_tree_node} ~ uniform_discrete(1, length(all_valid_tree_nodes)))] # random choice XXX
+        path = construct_path(tree, chosen_tree_node, goal, start)
+    else
+        path = nothing
+    end
+    
+    return (path, tree)
+end
+
+function maybe_optimize_path(scene, path, tree, params::PlannerParams)
     if isnothing(path)
-        return Point[], true, tree
+        return (Point[], true, tree)
     else
         path = optimize_path(scene, path, params.refine_iters, params.refine_std, params.refine_spacing, params.refine_gap)
         #@assert check_path_clear(path, scene)
         points = path.points
-        @assert points[1] == prev_loc
-        @assert points[end] == loc
-        return points[2:end], false, tree
+        return (points[2:end], false, tree)
     end
+end
+
+function plan_and_optimize_path(scene, prev_loc, loc, params)
+    (path, tree) = plan_path(prev_loc, loc, scene, params)
+    return maybe_optimize_path(scene, path, tree, params)
+end
+
+@gen function gen_plan_and_optimize_path(scene, prev_loc, loc, params)
+    (path, tree) = ({*} ~ gen_plan_path(prev_loc, loc, scene, params))
+    return maybe_optimize_path(scene, path, tree, params) #NOTE: we are not tracing optimize_path for now..
 end
 
 export PlannerParams, plan_and_optimize_path

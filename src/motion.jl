@@ -3,11 +3,13 @@ using FunctionalCollections: PersistentVector, push, assoc
 
 export ObsModelParams
 export motion_and_measurement_model_uncollapsed
+export motion_and_measurement_model_uncollapsed_incremental
 export motion_and_measurement_model_collapsed
 export motion_and_measurement_model_collapsed_incremental
 export walk_path
 export log_marginal_likelihood
 export sample_alignment
+export obs_x_addr, obs_y_addr
 
 function path_length(start::Point, path::Vector{Point})
     @assert length(path) > 0
@@ -367,6 +369,105 @@ end
 
     return (points, obs, prev_pt_idx, dist_past_prev_pt)
 end
+
+# default -- used by most
+obs_x_addr(::Any, t::Int) = (:x, t)
+obs_y_addr(::Any, t::Int) = (:y, t)
+
+###########################################
+#           generative function 1         #
+# uncollapsed motion and measuremnt model #
+#            (incrementalized)            #
+###########################################
+
+struct MotionMeasurementState
+    alignment::Int
+    points::PersistentVector{Point}
+    prev_pt_idx::Int
+    dist_past_prev_pt::Float64
+    observations::PersistentVector{Point}
+end
+
+@gen (static) function step(
+        t_minus_one::Int, prev_state::MotionMeasurementState,
+        path::AbstractVector{Point}, params::ObsModelParams)
+
+    t = t_minus_one + 1
+
+    # generate next *two* reference points on the path
+    # TODO it's not clear if this is done in other variants...
+    (points, prev_pt_idx, dist_past_prev_pt) = walk_path_incremental(
+        path, params.nominal_speed, prev_state.points, 2,
+        prev_state.prev_pt_idx, prev_state.dist_past_prev_pt)
+
+    # sample movement
+    prev_alignment::Int = prev_state.alignment
+    _prob_skip = (prev_alignment < t - 1) ? prob_skip(params) : 0.0
+    _prob_normal = (prev_alignment < t) ? prob_normal(params) : 0.0
+    probs = [prob_lag(params), _prob_normal, _prob_skip]
+    move ~ categorical(probs / sum(probs)) #1,2,3 means 0,1,2 steps
+    alignment = prev_alignment + (move - 1)
+    pt = points[alignment]
+
+    # sample observation
+    x ~ normal(pt.x, params.noise)
+    y ~ normal(pt.y, params.noise)
+
+    observations = push(prev_state.observations, Point(x, y))
+    return MotionMeasurementState(alignment, points, prev_pt_idx, dist_past_prev_pt, observations)
+end
+
+@gen (static) function motion_and_measurement_model_uncollapsed_incremental(
+        path::AbstractVector{Point}, params::ObsModelParams, T::Int)
+
+    # first point is always the start of the path
+    # generate the second point, so that the first time step can be assigned to either
+    (points, prev_pt_idx, dist_past_prev_pt) = walk_path_incremental(
+        path, params.nominal_speed, PersistentVector{Point}([path[1]]), 1, 1, 0.0)
+    
+    # sample movement for t=1 (either the first or second point)
+    move ~ categorical([prob_lag(params) + prob_normal(params), prob_skip(params)])
+    alignment = 1 + (move - 1)
+    pt = points[alignment]
+
+    # sample observation for t=1
+    x ~ normal(pt.x, params.noise)
+    y ~ normal(pt.y, params.noise)
+
+    # initial state
+    observations = PersistentVector{Point}([Point(x, y)])
+    first = MotionMeasurementState(alignment, points, prev_pt_idx, dist_past_prev_pt, observations)
+
+    # steps
+    rest ~ (Unfold(step))(T-1, first, path, params)
+
+    # final state
+    final_state = (T == 1) ? first : rest[T-1]
+
+    return (final_state.points, final_state.observations, final_state.prev_pt_idx, final_state.dist_past_prev_pt)
+end
+
+function obs_x_addr(::typeof(motion_and_measurement_model_uncollapsed_incremental), t::Int)
+    if t == 1
+        return :x
+    else
+        return :rest => (t-1) => :x
+    end
+end
+
+function obs_y_addr(::typeof(motion_and_measurement_model_uncollapsed_incremental), t::Int)
+    if t == 1
+        return :y
+    else
+        return :rest => (t-1) => :y
+    end
+end
+
+
+
+# MAJOR PROBLEM: the addresses of obsrevations are different!!!!!
+
+@load_generated_functions()
 
 ###########################################
 #       generative functions 2 and 3      #
