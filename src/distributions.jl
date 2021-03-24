@@ -99,6 +99,11 @@ function Gen.logpdf(::UniformCoordRect, pt::Vector{Float64}, xmin, xmax, ymin, y
     end
 end
 
+function Gen.logpdf_grad(::UniformCoordRect, pt::Vector{Float64}, xmin, xmax, ymin, ymax)
+    return (nothing, nothing, nothing, nothing, nothing)
+end
+
+
 Gen.has_argument_grads(::UniformCoordRect) = (false, false, false, false)
 Gen.has_output_grad(::UniformCoordRect) = false
 
