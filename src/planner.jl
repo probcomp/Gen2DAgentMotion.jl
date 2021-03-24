@@ -302,7 +302,6 @@ function optimize_path(
     simplified = simplify_path(scene, original; spacing=spacing)
     @assert check_path_clear(simplified, scene)
     refined = refine_path(scene, simplified, refine_iters, refine_std, refine_gap)
-    @assert check_path_clear(refined, scene)
     return refined 
 end
 
@@ -416,7 +415,9 @@ function maybe_optimize_path(scene, path, tree, params::PlannerParams)
         return (Point[], true, tree)
     else
         path = optimize_path(scene, path, params.refine_iters, params.refine_std, params.refine_spacing, params.refine_gap)
-        #@assert check_path_clear(path, scene)
+        if !check_path_clear(path, scene)
+            return (Point[], true, tree)
+        end
         points = path.points
         return (points[2:end], false, tree)
     end
