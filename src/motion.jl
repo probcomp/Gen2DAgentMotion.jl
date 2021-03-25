@@ -506,6 +506,7 @@ Gen.get_retval(trace::ObsModelTrace) = (trace.points, trace.obs, trace.prev_pt_i
 Gen.get_args(trace::ObsModelTrace) = (trace.path, trace.params, length(trace.obs))
 Gen.get_score(trace::ObsModelTrace) = trace.lml
 Gen.project(trace::ObsModelTrace, ::EmptySelection) = 0.0
+Gen.project(trace::ObsModelTrace, ::AllSelection) = trace.lml
 
 function Gen.get_choices(trace::ObsModelTrace)
     cm = choicemap()
