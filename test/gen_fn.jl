@@ -1,13 +1,16 @@
 function get_gf_test_args()
     path = Point[Point(0, 0), Point(1, 0), Point(1, 1)]
-    params = ObsModelParams(0.05, 0.2, 1.0)
-    obs = Point[Point(0.1, 0.1), Point(0.5, 0.1), Point(0.7, 0.8)]
-    (points, _, _) = Gen2DAgentMotion.walk_path(path, params.nominal_speed, 3)
-    return (path, params, obs, points)
+    params = ObsModelParams(0.05, 0.3, 1.0)
+    measurements = Point[Point(0.1, 0.1), Point(0.5, 0.1), Point(0.7, 0.8)]
+    T = length(measurements)
+    (dp_points_along_path, _) = Gen2DAgentMotion.walk_path(
+        path, params.nominal_speed, Gen2DAgentMotion.num_hidden_states(T))
+    @assert length(dp_points_along_path) == Gen2DAgentMotion.num_hidden_states(T)
+    return (path, params, measurements, dp_points_along_path)
 end
 
 @testset "simulate" begin
-    (path, params, _, _) = get_gf_test_args()
+    (path, params, _, dp_points_along_path) = get_gf_test_args()
     T = 3
     for (gen_fn, test_score) in [
             (Gen2DAgentMotion.motion_and_measurement_model_uncollapsed, false),
@@ -15,18 +18,16 @@ end
             (Gen2DAgentMotion.motion_and_measurement_model_collapsed, true),
             (Gen2DAgentMotion.motion_and_measurement_model_collapsed_incremental, true)]
         trace = simulate(gen_fn, (path, params, T))
-        obs = Point[]
+        measurements = Point[]
         for t in 1:T
-            push!(obs, Point(trace[obs_x_addr(gen_fn, t)], trace[obs_y_addr(gen_fn, t)]))
+            push!(measurements, Point(trace[obs_addr(gen_fn, t)]))
         end
-        (points, _, _) = Gen2DAgentMotion.walk_path(path, params.nominal_speed, T)
         @test get_args(trace) == (path, params, T)
         retval = get_retval(trace)
-        @test length(retval) == 4
-        #@test length(retval[1]) == T
-        @test length(retval[2]) == T
+        @test length(retval) == T
         if test_score
-            exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs)
+            exact_lml = Gen2DAgentMotion.log_marginal_likelihood(
+                params, dp_points_along_path, measurements)
             @test isapprox(get_score(trace), exact_lml)
         end
     end
@@ -35,8 +36,7 @@ end
 function make_obs_choicemap(observations::Vector{Point}, gen_fn)
     constraints = choicemap()
     for t in 1:length(observations)
-        constraints[obs_x_addr(gen_fn, t)] = observations[t].x
-        constraints[obs_y_addr(gen_fn, t)] = observations[t].y
+        constraints[obs_addr(gen_fn, t)] = [observations[t].x, observations[t].y]
     end
     return constraints
 end
@@ -44,7 +44,6 @@ end
 @testset "generate" begin
     (path, params, obs, points) = get_gf_test_args()
     T = length(obs)
-
 
     exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs)
 
@@ -64,38 +63,32 @@ end
 
     # test that if we estimate the log marginal likelihood on the uncollapsed model 
     # using importance sampling, we get approximately the right answer
-    # TODO there is a small discrepancy, perhaps due to how the end of the sequence is handled
-    # XXX Resolve this..
-    # it's possible there's a bug in all of (i) the manual test case above,
-    # (ii) the core log marignal likelihood calculation
-    for num_particles in [1, 10, 100, 1000, 10000]
-        constraints = make_obs_choicemap(obs, Gen2DAgentMotion.motion_and_measurement_model_uncollapsed)
-        (_, _, lml_estimate) = importance_sampling(
-            Gen2DAgentMotion.motion_and_measurement_model_uncollapsed,
-            (path, params, T), constraints, num_particles)
-        println("DML version: $num_particles lml_estimate: $lml_estimate, actual: $exact_lml")
-        constraints = make_obs_choicemap(obs, Gen2DAgentMotion.motion_and_measurement_model_uncollapsed_incremental)
-        (_, _, lml_estimate) = importance_sampling(
-            Gen2DAgentMotion.motion_and_measurement_model_uncollapsed_incremental,
-            (path, params, T), constraints, num_particles)
-        println("SML version: $num_particles lml_estimate: $lml_estimate, actual: $exact_lml")
-    end
+    num_particles = 10000
+    constraints = make_obs_choicemap(obs, Gen2DAgentMotion.motion_and_measurement_model_uncollapsed)
+    (_, _, lml_estimate) = importance_sampling(
+        Gen2DAgentMotion.motion_and_measurement_model_uncollapsed,
+        (path, params, T), constraints, num_particles)
+    println("DML version: $num_particles lml_estimate: $lml_estimate, actual: $exact_lml")
+    @test isapprox(lml_estimate, exact_lml, rtol=1e-2)
+    constraints = make_obs_choicemap(obs, Gen2DAgentMotion.motion_and_measurement_model_uncollapsed_incremental)
+    (_, _, lml_estimate) = importance_sampling(
+        Gen2DAgentMotion.motion_and_measurement_model_uncollapsed_incremental,
+        (path, params, T), constraints, num_particles)
+    println("SML version: $num_particles lml_estimate: $lml_estimate, actual: $exact_lml")
+    @test isapprox(lml_estimate, exact_lml, rtol=1e-2)
 end
 
 @testset "update change path" begin
     (path, params, obs, points) = get_gf_test_args()
     old_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs)
     new_path = Point[Point(0.5, 0.5), Point(1.5, 0.5), Point(1.5, 1.5)]
-    (new_points, _, _) = Gen2DAgentMotion.walk_path(new_path, params.nominal_speed, length(obs))
+    (new_points, _) = Gen2DAgentMotion.walk_path(new_path, params.nominal_speed, length(obs))
     new_lml = Gen2DAgentMotion.log_marginal_likelihood(params, new_points, obs)
 
     init_constraints = choicemap(
-        ((:x, 1), obs[1].x), 
-        ((:y, 1), obs[1].y),
-        ((:x, 2), obs[2].x),
-        ((:y, 2), obs[2].y),
-        ((:x, 3), obs[3].x),
-        ((:y, 3), obs[3].y)
+        (:meas => 1, [obs[1].x, obs[1].y]), 
+        (:meas => 2, [obs[2].x, obs[2].y]),
+        (:meas => 3, [obs[3].x, obs[3].y])
     )
 
     for gen_fn in [
@@ -111,16 +104,12 @@ end
     
         # check that new trace has the right values in it
         for t in 1:length(obs)
-            @test new_trace[(:x, t)] == obs[t].x
-            @test new_trace[(:y, t)] == obs[t].y
+            @test new_trace[:meas => t] == [obs[t].x, obs[t].y]
         end
     
         # check the retval
         retval = get_retval(trace)
-        @test length(retval) == 4
-        @test length(retval[1]) == 3
-        @test length(retval[2]) == 3
-        # TODO check other elements: prev_pt_idx, dist_past_prev_pt
+        @test length(retval) == length(obs)
     
         # check args in the trace
         @test get_args(new_trace) == (new_path, params, length(obs))
@@ -140,7 +129,7 @@ end
 
     # compute the log marginal likelhoods for all prefixes of the data set
     lmls = [
-        Gen2DAgentMotion.log_marginal_likelihood(params, points[1:t], obs[1:t])
+        Gen2DAgentMotion.log_marginal_likelihood(params, points[1:Gen2DAgentMotion.num_hidden_states(t)], obs[1:t])
         for t in 1:T
     ]
     
@@ -151,14 +140,12 @@ end
 
         init_constraints = choicemap()
         for t in 1:T1
-            init_constraints[(:x, t)] = obs[t].x
-            init_constraints[(:y, t)] = obs[t].y
+            init_constraints[:meas => t] = [obs[t].x, obs[t].y]
         end
 
         update_constraints = choicemap()
         for t in (T1+1):T
-            update_constraints[(:x, t)] = obs[t].x
-            update_constraints[(:y, t)] = obs[t].y
+            update_constraints[:meas => t] = [obs[t].x, obs[t].y]
         end
 
         for gen_fn in [
@@ -176,17 +163,12 @@ end
     
             # check that new trace has the right values in it
             for t in 1:T
-                @test new_trace[(:x, t)] == obs[t].x
-                @test new_trace[(:y, t)] == obs[t].y
+                @test new_trace[:meas => t] == [obs[t].x, obs[t].y]
             end
     
             # check the retval
             retval = get_retval(new_trace)
-            @test length(retval) == 4
-            @test length(retval[1]) == T
-            @test length(retval[2]) == T
-            # TODO check other elements
-            #(trace.points, trace.obs, trace.prev_pt_idx, trace.dist_past_prev_pt)
+            @test length(retval) == T
     
             # check args in the trace
             @test get_args(new_trace) == (path, params, T)
