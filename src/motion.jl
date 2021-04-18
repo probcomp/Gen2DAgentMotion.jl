@@ -701,9 +701,3 @@ end
 function obs_addr(::GenSMC.PFPseudoMarginalGF, T::Int)
     return obs_addr(motion_and_measurement_model_uncollapsed_incremental, T)
 end
-
-# TODO
-# Q: does our model actually give us this during a call to update?
-# do we need to foramlize how update handeles hte internal choices inside the path planner???
-# (otherwise the plan is actually different on every call to update..)
-# A: it should work; the plan should be NoChange(), but this isn't formalized yet...

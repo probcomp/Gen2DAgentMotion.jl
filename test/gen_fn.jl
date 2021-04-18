@@ -41,6 +41,32 @@ function make_obs_choicemap(observations::Vector{Point}, gen_fn)
     return constraints
 end
 
+@testset "pseudomarginal" begin
+
+    (path, params, obs, points) = get_gf_test_args()
+
+    num_particles = 10000
+    pseudomarginal_gen_fn = make_motion_and_measurement_model_smc_pseudomarginal(num_particles)
+
+    # test that if we use the pseudomarginal SMC version, we get approximately
+    # the right log marginal likelihoods
+    obs1 = choicemap((obs_addr(pseudomarginal_gen_fn, 1), [obs[1].x, obs[1].y]))
+    obs2 = choicemap((obs_addr(pseudomarginal_gen_fn, 2), [obs[2].x, obs[2].y]))
+    obs3 = choicemap((obs_addr(pseudomarginal_gen_fn, 3), [obs[3].x, obs[3].y]))
+    trace, log_weight_1 = generate(pseudomarginal_gen_fn, (path, params, 1), obs1)
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs[1:1])
+    @test isapprox(log_weight_1, exact_lml, rtol=1e-2)
+
+    argdiffs = (NoChange(), NoChange(), UnknownChange())
+    trace, log_weight_2 = update(trace, (path, params, 2), argdiffs, obs2)
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs[1:2])
+    @test isapprox(log_weight_1 + log_weight_2, exact_lml, rtol=1e-2)
+
+    trace, log_weight_3 = update(trace, (path, params, 3), argdiffs, obs3)
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs[1:3])
+    @test isapprox(log_weight_1 + log_weight_2 + log_weight_3, exact_lml, rtol=1e-2)
+end
+
 @testset "generate" begin
     (path, params, obs, points) = get_gf_test_args()
     T = length(obs)
@@ -60,20 +86,6 @@ end
         # check the retval
         # TODO check other elements: prev_pt_idx, dist_past_prev_pt
     end
-
-    # test that if we use the pseudomarginal SMC version, we get approximately the right answer
-    num_particles = 10000
-    pseudomarginal_gen_fn = make_motion_and_measurement_model_smc_pseudomarginal(num_particles)
-    obs1 = choicemap((obs_addr(pseudomarginal_gen_fn, 1), [obs[1].x, obs[1].y]))
-    obs2 = choicemap((obs_addr(pseudomarginal_gen_fn, 2), [obs[2].x, obs[2].y]))
-    obs3 = choicemap((obs_addr(pseudomarginal_gen_fn, 3), [obs[3].x, obs[3].y]))
-    trace, log_weight_1 = generate(pseudomarginal_gen_fn, (path, params, 1), obs1)
-    argdiffs = (NoChange(), NoChange(), UnknownChange())
-    trace, log_weight_2 = update(trace, (path, params, 2), argdiffs, obs2)
-    trace, log_weight_3 = update(trace, (path, params, 3), argdiffs, obs3)
-    lml_estimate = log_weight_1 + log_weight_2 + log_weight_3
-    println("pseudomarginal version: with $num_particles particles; lml_estimate: $lml_estimate, actual: $exact_lml")
-    @test isapprox(lml_estimate, exact_lml, rtol=1e-2)
 
     # test that if we estimate the log marginal likelihood on the uncollapsed model 
     # using importance sampling, we get approximately the right answer
