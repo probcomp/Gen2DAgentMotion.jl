@@ -7,6 +7,7 @@ version = "0.1.0"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 FunctionalCollections = "de31a74c-ac4f-5751-b3fd-e18cd04993ca"
 Gen = "ea4f424c-a589-11e8-07c0-fd5c91b9da4a"
+GenSMC = "c6827b6f-81f0-4b91-a46a-e1fcef814a84"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [extras]

@@ -677,3 +677,33 @@ function Gen.regenerate(trace::ObsModelTrace, args::Tuple, argdiffs::Tuple, sele
     (new_trace, weight, retdiff, _) = update(trace, args, argdiffs, EmptyChoiceMap())
     return (new_trace, weight, retdiff)
 end
+
+##################################
+# SMC-based pseudomarginal model #
+##################################
+
+import GenSMC
+
+export make_motion_and_measurement_model_smc_pseudomarginal
+
+function make_motion_and_measurement_model_smc_pseudomarginal(num_particles::Int)
+    return GenSMC.PFPseudoMarginalGF(
+        model = motion_and_measurement_model_uncollapsed_incremental,
+        data_addrs = (T) -> [obs_addr(motion_and_measurement_model_uncollapsed_incremental, T)],
+        get_step_args = (args, T) -> (args[1], args[2], T),
+        num_particles = num_particles,
+        get_T = (args) -> args[3],
+        reuse_particle_system = (args1, args2, argdiffs) -> (
+            argdiffs[1] == NoChange() && argdiffs[2] == NoChange()))
+end
+
+# TODO need to be able to attach methods to this specific instance
+function obs_addr(::GenSMC.PFPseudoMarginalGF, T::Int)
+    return obs_addr(motion_and_measurement_model_uncollapsed_incremental, T)
+end
+
+# TODO
+# Q: does our model actually give us this during a call to update?
+# do we need to foramlize how update handeles hte internal choices inside the path planner???
+# (otherwise the plan is actually different on every call to update..)
+# A: it should work; the plan should be NoChange(), but this isn't formalized yet...
