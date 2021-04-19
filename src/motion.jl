@@ -539,6 +539,9 @@ function Gen.simulate(gen_fn::ObsModel, args::Tuple)
     (alphas, lml) = forward_filtering(params, dp_points_along_path, measurements)
     @assert !isnan(lml)
 
+    # check invariant
+    @assert num_hidden_states(T) == length(trace.dp_points_along_path)
+
     return ObsModelTrace(gen_fn, path, params, dp_progress, dp_points_along_path, measurements, lml, alphas)
 end
 
@@ -557,6 +560,9 @@ function Gen.generate(gen_fn::ObsModel, args::Tuple, constraints::ChoiceMap)
 
     # walk the path
     (dp_points_along_path, dp_progress) = walk_path(path, params.nominal_speed, num_hidden_states(T))
+
+    # check invariant
+    @assert num_hidden_states(T) == length(dp_points_along_path)
 
     # compute log marginal likelihood
     (alphas, lml) = forward_filtering(params, dp_points_along_path, measurements)
