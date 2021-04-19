@@ -587,7 +587,10 @@ function Gen.update(
     @assert num_hidden_states(T) == length(trace.dp_points_along_path)
 
     # TODO: if we only changed the parameters and not the path, then we don't need to re-walk it
-    (dp_points_along_path, dp_progress) = walk_path(new_path, new_params.nominal_speed, T)
+    (dp_points_along_path, dp_progress) = walk_path(new_path, new_params.nominal_speed, num_hidden_states(T))
+
+    # check invariant
+    @assert num_hidden_states(T) == length(dp_points_along_path)
 
     # run forward-backward from scratch
     measurements = trace.measurements
