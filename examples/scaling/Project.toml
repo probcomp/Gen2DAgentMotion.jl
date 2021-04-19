@@ -1,5 +1,7 @@
 [deps]
 Gen = "ea4f424c-a589-11e8-07c0-fd5c91b9da4a"
 Gen2DAgentMotion = "1544a2c3-e4ed-46f4-bd66-0c6b390abd0d"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
 PyPlot = "d330b81b-6aea-500a-939a-2ce795aea3ee"
+Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
