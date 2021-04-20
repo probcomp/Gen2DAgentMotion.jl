@@ -732,6 +732,21 @@ end
     return nothing
 end
 
+@gen function optimal_local_proposal_init(model, args, data)
+    y = data[obs_addr(motion_and_measurement_model_uncollapsed_incremental, 1)]
+    steps_addr = get_steps_addr(motion_and_measurement_model_uncollapsed_incremental, 1)
+    log_probs = Vector{Float64}(undef, 3)
+    for i in 0:2 # 0, 1, 2 steps
+        (_, log_probs[i+1]) = generate(
+            model, args,
+            merge(data, choicemap((steps_addr, i))))
+    end
+    probs = exp.(log_probs .- logsumexp(log_probs))
+    probs = probs / sum(probs)
+    {steps_addr} ~ sample_steps(probs)
+    return nothing
+end
+
 function make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(num_particles::Int)
     return GenSMC.PFPseudoMarginalGF(
         model = motion_and_measurement_model_uncollapsed_incremental,
@@ -741,9 +756,8 @@ function make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_prop
         get_T = (args) -> args[3],
         reuse_particle_system = (args1, args2, argdiffs) -> (
             argdiffs[1] == NoChange() && argdiffs[2] == NoChange()),
-        get_proposal = (T) -> optimal_local_proposal)
+        get_proposal = (T) -> (T == 1 ? optimal_local_proposal_init : optimal_local_proposal))
 end
-
 
 # TODO need to be able to attach methods to this specific instance
 function obs_addr(::GenSMC.PFPseudoMarginalGF, T::Int)

@@ -4,6 +4,7 @@ using PyPlot
 using Statistics: median
 using LaTeXStrings
 import Random
+using Statistics: mean, median, std
 
 start = Point(0.1, 0.9)
 #scene = Gen2DAgentMotion.example_apartment_floorplan()
@@ -31,10 +32,13 @@ get_path(trace) = get_retval(trace)[2]
 @make_model(uncollapsed, motion_and_measurement_model_uncollapsed)
 @make_model(uncollapsed_incremental, motion_and_measurement_model_uncollapsed_incremental)
 @make_model(pseudomarginal_1, make_motion_and_measurement_model_smc_pseudomarginal(1))
+@make_model(pseudomarginal_1_optimal, make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(1))
 @make_model(pseudomarginal_3, make_motion_and_measurement_model_smc_pseudomarginal(3))
 @make_model(pseudomarginal_3_optimal, make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(3))
 @make_model(pseudomarginal_10, make_motion_and_measurement_model_smc_pseudomarginal(10))
+@make_model(pseudomarginal_10_optimal, make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(10))
 @make_model(pseudomarginal_100, make_motion_and_measurement_model_smc_pseudomarginal(100))
+@make_model(pseudomarginal_100_optimal, make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(100))
 @make_model(pseudomarginal_200, make_motion_and_measurement_model_smc_pseudomarginal(200))
 @make_model(collapsed, motion_and_measurement_model_collapsed)
 @make_model(collapsed_incremental, motion_and_measurement_model_collapsed_incremental)
@@ -178,7 +182,10 @@ end
 
 function jitter(ax, x, data)
     x_jitter = x .+ (rand(length(data)) .- 0.5)  * 0.25
-    ax.scatter(x_jitter, data, marker=".", s=20, alpha=0.5, color="black")
+    ax.scatter(x_jitter, data, marker=".", s=2, alpha=0.5, color="black")
+    xmin = x - 0.25
+    xmax = x + 0.25
+    return (xmin, xmax)
 end
 
 import JSON
@@ -201,43 +208,20 @@ function draw_scene()
     tight_layout()
 end
 
-function acceptance_rate_plots()
-    Random.seed!(1)
-    close("all")
+function plot_jitter!(ax, labels, label, data)
+    push!(labels, label)
+    (xmin, xmax) = jitter(ax, length(labels), data)
+    n = length(data)
+    plot([xmin, xmax], [mean(data), mean(data)], linestyle="-", color="red")
+end
+
+function generate_acceptance_rate_results()
+    Random.seed!(1) 
     observations = get_apartment_dataset()
     T = length(observations)
-    n = 200 # 100
-    reps = 25
+    n = 100 # 100 200?
+    reps = 25 # 25
 
-    # get approximate posterior samples
-    num_posterior_samples = 0
-    posterior_num_particles = 1000
-    println("obtaining initial destination samples")
-    obs_choices = choicemap()
-    for t in 1:T
-        obs_choices[:measurements => obs_addr(motion_and_measurement_model_uncollapsed, t)] = [observations[t].x, observations[t].y]
-    end
-    posterior_dests = []
-    for rep in 1:num_posterior_samples
-        @time trace, = importance_resampling(uncollapsed, (T,), obs_choices, posterior_num_particles)
-        push!(posterior_dests, trace[:destination])
-    end
-
-    # show data set and posterior
-    println(observations)
-    figure(figsize=(6,6))
-    scatter([pt.x for pt in observations], [pt.y for pt in observations], color="black", s=5)
-    scatter([vec[1] for vec in posterior_dests], [vec[2] for vec in posterior_dests], color="red", s=5)
-    ax = gca()
-    for wall in scene.walls
-        plot([wall.a.x, wall.b.x], [wall.a.y, wall.b.y], color="black")
-    end
-    gca().set_xlim(0, 1)
-    gca().set_ylim(0, 1)
-    tight_layout()
-    savefig("dataset.png")
-
-    # generate results
     results = Dict()
     debug_traces = Dict()
 
@@ -253,10 +237,22 @@ function acceptance_rate_plots()
         make_motion_and_measurement_model_smc_pseudomarginal(1),
         observations, n, reps)
 
+    println("pseudomarginal(1) optimal...")
+    results["pseudomarginal-1-optimal"], debug_traces["pseudomarginal-1-optimal"] = evaluate_acceptance_rate(
+        pseudomarginal_1_optimal,
+        make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(1),
+        observations, n, reps)
+
     println("pseudomarginal(3)...")
     results["pseudomarginal-3"], debug_traces["pseudomarginal-3"] = evaluate_acceptance_rate(
         pseudomarginal_3,
         make_motion_and_measurement_model_smc_pseudomarginal(3),
+        observations, n, reps)
+
+    println("pseudomarginal(3) optimal...")
+    results["pseudomarginal-3-optimal"], debug_traces["pseudomarginal-3-optimal"] = evaluate_acceptance_rate(
+        pseudomarginal_3_optimal,
+        make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(3),
         observations, n, reps)
 
     println("pseudomarginal(10)...")
@@ -265,18 +261,67 @@ function acceptance_rate_plots()
         make_motion_and_measurement_model_smc_pseudomarginal(10),
         observations, n, reps)
 
-    println("pseudomarginal(100)...")
-    results["pseudomarginal-100"], debug_traces["pseudomarginal-100"] = evaluate_acceptance_rate(
-        pseudomarginal_100,
-        make_motion_and_measurement_model_smc_pseudomarginal(100),
+    println("pseudomarginal(10) optimal...")
+    results["pseudomarginal-10-optimal"], debug_traces["pseudomarginal-10-optimal"] = evaluate_acceptance_rate(
+        pseudomarginal_10_optimal,
+        make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(10),
         observations, n, reps)
 
-    println("pseudomarginal(200)...")
-    results["pseudomarginal-200"], debug_traces["pseudomarginal-200"] = evaluate_acceptance_rate(
-        pseudomarginal_200,
-        make_motion_and_measurement_model_smc_pseudomarginal(200),
-        observations, n, reps)
+    #println("pseudomarginal(100)...")
+    #results["pseudomarginal-100"], debug_traces["pseudomarginal-100"] = evaluate_acceptance_rate(
+        #pseudomarginal_100,
+        #make_motion_and_measurement_model_smc_pseudomarginal(100),
+        #observations, n, reps)
 
+    #println("pseudomarginal(100) optimal...")
+    #results["pseudomarginal-100-optimal"], debug_traces["pseudomarginal-100-optimal"] = evaluate_acceptance_rate(
+        #pseudomarginal_100_optimal,
+        #make_motion_and_measurement_model_smc_pseudomarginal_optimal_local_proposal(100),
+        #observations, n, reps)
+
+    #println("pseudomarginal(200)...")
+    #results["pseudomarginal-200"], debug_traces["pseudomarginal-200"] = evaluate_acceptance_rate(
+        #pseudomarginal_200,
+        #make_motion_and_measurement_model_smc_pseudomarginal(200),
+        #observations, n, reps)
+
+    return (results, debug_traces)
+end
+
+function acceptance_rate_plots()
+    close("all")
+
+    ## get approximate posterior samples
+    #num_posterior_samples = 0
+    #posterior_num_particles = 1000
+    #println("obtaining initial destination samples")
+    #obs_choices = choicemap()
+    #for t in 1:T
+        #obs_choices[:measurements => obs_addr(motion_and_measurement_model_uncollapsed, t)] = [observations[t].x, observations[t].y]
+    #end
+    #posterior_dests = []
+    #for rep in 1:num_posterior_samples
+        #@time trace, = importance_resampling(uncollapsed, (T,), obs_choices, posterior_num_particles)
+        #push!(posterior_dests, trace[:destination])
+    #end
+#
+    ## show data set and posterior
+    #println(observations)
+    #figure(figsize=(6,6))
+    #scatter([pt.x for pt in observations], [pt.y for pt in observations], color="black", s=5)
+    #scatter([vec[1] for vec in posterior_dests], [vec[2] for vec in posterior_dests], color="red", s=5)
+    #ax = gca()
+    #for wall in scene.walls
+        #plot([wall.a.x, wall.b.x], [wall.a.y, wall.b.y], color="black")
+    #end
+    #gca().set_xlim(0, 1)
+    #gca().set_ylim(0, 1)
+    #tight_layout()
+    #savefig("dataset.png")
+
+    (results, debug_traces) = generate_acceptance_rate_results()
+
+    # generate results
     open("acceptance_rate_results.json", "w") do f
        JSON.print(f, results)
     end
@@ -314,29 +359,24 @@ function acceptance_rate_plots()
         #savefig("debug_traces_$method.png")
     #end
     
-    # plot acceptance rates
     figure()
     ax = gca()
-
     labels = String[]
-
-    push!(labels, "exact")
-    push!(labels, "PM(1)")
-    push!(labels, "PM(3)")
-    push!(labels, "PM(10)")
-    push!(labels, "PM(100)")
-    push!(labels, "PM(200)")
-
-    jitter(ax, 1, results["collapsed-inc"])
-    jitter(ax, 2, results["pseudomarginal-1"])
-    jitter(ax, 3, results["pseudomarginal-3"])
-    jitter(ax, 4, results["pseudomarginal-10"])
-    jitter(ax, 5, results["pseudomarginal-100"])
-    jitter(ax, 6, results["pseudomarginal-200"])
-
+    plot_jitter!(ax, labels, "exact", results["collapsed-inc"])
+    plot_jitter!(ax, labels, "PM (1)", results["pseudomarginal-1"])
+    plot_jitter!(ax, labels, "PM-opt (1)", results["pseudomarginal-1-optimal"])
+    plot_jitter!(ax, labels, "PM (3)", results["pseudomarginal-3"])
+    plot_jitter!(ax, labels, "PM-opt (3)", results["pseudomarginal-3-optimal"])
+    plot_jitter!(ax, labels, "PM (10)", results["pseudomarginal-10"])
+    plot_jitter!(ax, labels, "PM-opt (10)", results["pseudomarginal-10-optimal"])
+    #plot_jitter!(ax, labels, "PM (100)", results["pseudomarginal-100"])
+    #plot_jitter!(ax, labels, "PM-opt (100)", results["pseudomarginal-100-optimal"])
+    gca().set_ylim(0, 1)
     gca().set_xticks(collect(1:length(labels)))
     gca().set_xticklabels(labels)
+    ylabel("acceptance rate")
     savefig("acceptance_rates.png")
+
 end
 
 function generate_lml_results(reps)
@@ -405,13 +445,6 @@ function lml_estimate_plots()
 
     figure()
     ax = gca()
-
-    plot_jitter!(labels, label, data) = begin
-        push!(labels, label);
-        jitter(ax, length(labels), data)
-    end
-
-
     labels = String[]
     plot_jitter!(labels, "exact", results["collapsed-inc"])
     plot_jitter!(labels, "PM (1)", results["pseudomarginal-1"])
@@ -421,7 +454,7 @@ function lml_estimate_plots()
     plot_jitter!(labels, "PM-opt (10)", results["pseudomarginal-10-optimal"])
     plot_jitter!(labels, "PM (100)", results["pseudomarginal-100"])
     plot_jitter!(labels, "PM-opt (100)", results["pseudomarginal-100-optimal"])
-    gca().set_ylim(200, 350)
+    gca().set_ylim(280, 310)
     gca().set_xticks(collect(1:length(labels)))
     gca().set_xticklabels(labels)
     ylabel("log marginal likelihood estimates")
@@ -429,5 +462,5 @@ function lml_estimate_plots()
 end
 
 close("all")
-lml_estimate_plots()
-#acceptance_rate_plots()
+#lml_estimate_plots()
+acceptance_rate_plots()
