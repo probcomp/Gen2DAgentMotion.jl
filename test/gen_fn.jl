@@ -2,32 +2,34 @@ function get_gf_test_args()
     path = Point[Point(0, 0), Point(1, 0), Point(1, 1)]
     params = ObsModelParams(0.05, 0.3, 1.0)
     measurements = Point[Point(0.1, 0.1), Point(0.5, 0.1), Point(0.7, 0.8)]
-    T = length(measurements)
-    (dp_points_along_path, _) = Gen2DAgentMotion.walk_path(
-        path, params.nominal_speed, Gen2DAgentMotion.num_hidden_states(T))
-    @assert length(dp_points_along_path) == Gen2DAgentMotion.num_hidden_states(T)
-    return (path, params, measurements, dp_points_along_path)
+    return (path, params, measurements)
 end
 
 @testset "simulate" begin
-    (path, params, _, dp_points_along_path) = get_gf_test_args()
+    (path, params, _) = get_gf_test_args()
     T = 3
+
     for (gen_fn, test_score) in [
             (Gen2DAgentMotion.motion_and_measurement_model_uncollapsed, false),
             (Gen2DAgentMotion.motion_and_measurement_model_uncollapsed_incremental, false),
             (Gen2DAgentMotion.motion_and_measurement_model_collapsed, true),
             (Gen2DAgentMotion.motion_and_measurement_model_collapsed_incremental, true)]
+
+        # simulate
         trace = simulate(gen_fn, (path, params, T))
+
+        # get exact log marginal likelhood of simulated data in trace
         measurements = Point[]
         for t in 1:T
             push!(measurements, Point(trace[obs_addr(gen_fn, t)]))
         end
+        exact_lml = Gen2DAgentMotion.log_marginal_likelihood(
+            params, path, measurements)
+
         @test get_args(trace) == (path, params, T)
         retval = get_retval(trace)
         @test length(retval) == T
         if test_score
-            exact_lml = Gen2DAgentMotion.log_marginal_likelihood(
-                params, dp_points_along_path, measurements)
             @test isapprox(get_score(trace), exact_lml)
         end
     end
@@ -43,7 +45,7 @@ end
 
 @testset "pseudomarginal" begin
 
-    (path, params, obs, points) = get_gf_test_args()
+    path, params, obs = get_gf_test_args()
 
     num_particles = 10000
     pseudomarginal_gen_fn = make_motion_and_measurement_model_smc_pseudomarginal(num_particles)
@@ -54,24 +56,24 @@ end
     obs2 = choicemap((obs_addr(pseudomarginal_gen_fn, 2), [obs[2].x, obs[2].y]))
     obs3 = choicemap((obs_addr(pseudomarginal_gen_fn, 3), [obs[3].x, obs[3].y]))
     trace, log_weight_1 = generate(pseudomarginal_gen_fn, (path, params, 1), obs1)
-    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs[1:1])
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, path, obs[1:1])
     @test isapprox(log_weight_1, exact_lml, rtol=1e-2)
 
     argdiffs = (NoChange(), NoChange(), UnknownChange())
     trace, log_weight_2 = update(trace, (path, params, 2), argdiffs, obs2)
-    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs[1:2])
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, path, obs[1:2])
     @test isapprox(log_weight_1 + log_weight_2, exact_lml, rtol=1e-2)
 
     trace, log_weight_3 = update(trace, (path, params, 3), argdiffs, obs3)
-    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs[1:3])
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, path, obs[1:3])
     @test isapprox(log_weight_1 + log_weight_2 + log_weight_3, exact_lml, rtol=1e-2)
 end
 
 @testset "generate" begin
-    (path, params, obs, points) = get_gf_test_args()
+    path, params, obs = get_gf_test_args()
     T = length(obs)
 
-    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs)
+    exact_lml = Gen2DAgentMotion.log_marginal_likelihood(params, path, obs)
 
     for gen_fn in [
             #Gen2DAgentMotion.motion_and_measurement_model_uncollapsed,
@@ -105,40 +107,49 @@ end
 end
 
 @testset "update change path" begin
-    (path, params, obs, points) = get_gf_test_args()
-    old_lml = Gen2DAgentMotion.log_marginal_likelihood(params, points, obs)
+    # old and new paths
+    old_path, params, observations = get_gf_test_args()
     new_path = Point[Point(0.5, 0.5), Point(1.5, 0.5), Point(1.5, 1.5)]
-    (new_points, _) = Gen2DAgentMotion.walk_path(new_path, params.nominal_speed, length(obs))
-    new_lml = Gen2DAgentMotion.log_marginal_likelihood(params, new_points, obs)
+
+    # compute log marginal likelihood for previous path
+    old_lml = Gen2DAgentMotion.log_marginal_likelihood(params, old_path, observations)
+
+    # compute log marginal likelihood for new path
+    new_lml = Gen2DAgentMotion.log_marginal_likelihood(params, new_path, observations)
 
     init_constraints = choicemap(
-        (:meas => 1, [obs[1].x, obs[1].y]), 
-        (:meas => 2, [obs[2].x, obs[2].y]),
-        (:meas => 3, [obs[3].x, obs[3].y])
+        (:meas => 1, [observations[1].x, observations[1].y]), 
+        (:meas => 2, [observations[2].x, observations[2].y]),
+        (:meas => 3, [observations[3].x, observations[3].y])
     )
 
     for gen_fn in [
             Gen2DAgentMotion.motion_and_measurement_model_collapsed,
             Gen2DAgentMotion.motion_and_measurement_model_collapsed_incremental]
+        println("gen_fn: $gen_fn")
 
-        trace, = generate(gen_fn, (path, params, 3), init_constraints)
+        # obtain trace with old path in it
+        trace, = generate(gen_fn, (old_path, params, 3), init_constraints)
+
+        # update the path to the new path
         new_trace, log_weight, retdiff = update(
-                trace, (new_path, params, 3), (UnknownChange(), UnknownChange(), NoChange()),
+                trace, (new_path, params, 3),
+                (UnknownChange(), UnknownChange(), NoChange()),
                 choicemap())
     
         @test retdiff == UnknownChange()
     
         # check that new trace has the right values in it
-        for t in 1:length(obs)
-            @test new_trace[:meas => t] == [obs[t].x, obs[t].y]
+        for t in 1:length(observations)
+            @test new_trace[:meas => t] == [observations[t].x, observations[t].y]
         end
     
         # check the retval
         retval = get_retval(trace)
-        @test length(retval) == length(obs)
+        @test length(retval) == length(observations)
     
         # check args in the trace
-        @test get_args(new_trace) == (new_path, params, length(obs))
+        @test get_args(new_trace) == (new_path, params, length(observations))
     
         # check the score
         @test isapprox(get_score(new_trace), new_lml)
@@ -150,12 +161,12 @@ end
 
 @testset "update extension" begin
 
-    (path, params, obs, points) = get_gf_test_args()
+    path, params, obs = get_gf_test_args()
     T = length(obs)
 
     # compute the log marginal likelhoods for all prefixes of the data set
     lmls = [
-        Gen2DAgentMotion.log_marginal_likelihood(params, points[1:Gen2DAgentMotion.num_hidden_states(t)], obs[1:t])
+        Gen2DAgentMotion.log_marginal_likelihood(params, path, obs[1:t])
         for t in 1:T
     ]
     
