@@ -21,7 +21,7 @@ end
         # get exact log marginal likelhood of simulated data in trace
         measurements = Point[]
         for t in 1:T
-            push!(measurements, Point(trace[obs_addr(gen_fn, t)]))
+            push!(measurements, Point(trace[Gen2DAgentMotion.obs_addr(gen_fn, t)]))
         end
         exact_lml = Gen2DAgentMotion.log_marginal_likelihood(
             params, path, measurements)

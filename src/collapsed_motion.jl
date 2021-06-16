@@ -48,7 +48,7 @@ function Base.getindex(trace::ObsModelTrace, addr)
         measurements = trace.measurements
         return sample_locations_exact_conditional(params, path, measurements)
     else
-        throw(KeyError(addr))
+        return get_choices(trace)[addr]
     end
 end
 

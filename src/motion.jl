@@ -242,7 +242,7 @@ end
 
     locations ~ record_locations(final_state.locations)
 
-    return measurements
+    return final_state.measurements
 end
 
 @load_generated_functions()

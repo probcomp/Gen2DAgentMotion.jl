@@ -154,3 +154,9 @@ end
     (alphas, actual) = Gen2DAgentMotion.forward_filtering_incremental(params, [A, B, C, D], [obs1, obs2, obs3, obs4], alphas)
     @test isapprox(actual, expected)
 end
+
+@testset "sample_locations_exact_conditional" begin
+    # confirm that a single sample importance sampling using this as the proposal returns the exact log marginal likelihood
+    # (the samples look reasonable, but would be good to test)
+    # TODO
+end
